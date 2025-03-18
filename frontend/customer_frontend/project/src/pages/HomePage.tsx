@@ -50,7 +50,7 @@ const HomePage: React.FC = () => {
             Summer Collection
           </h1>
           <p className="mt-6 max-w-lg text-xl text-indigo-100">
-            Discover our latest arrivals and trending products. Shop now and get free shipping on all orders over $50.
+            Discover our latest arrivals and trending products. Shop now and get free shipping on all orders over $100.
           </p>
           <div className="mt-10">
             <Link
