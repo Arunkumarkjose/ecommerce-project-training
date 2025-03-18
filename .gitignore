@@ -1,0 +1,27 @@
+# Ignore Python virtual environment
+venv/
+__pycache__/
+
+# Ignore environment files
+.env
+*.env
+
+# Ignore database files
+*.sqlite3
+*.db
+
+# Ignore compiled files
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore logs and cache
+*.log
+cache/
+dist/
+build/
+
+# Ignore React dependencies
+node_modules/
+npm-debug.log
+yarn-error.log
