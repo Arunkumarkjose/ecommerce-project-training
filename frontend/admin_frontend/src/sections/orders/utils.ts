@@ -1,4 +1,4 @@
-import type { ProductProps } from './orders-table-row';
+import type { OrderProps } from './orders-table-row';
 
 // ----------------------------------------------------------------------
 
@@ -53,7 +53,7 @@ export function getComparator<Key extends keyof any>(
 // ----------------------------------------------------------------------
 
 type ApplyFilterProps = {
-  inputData: ProductProps[];
+  inputData: OrderProps[];
   filterName: string;
   comparator: (a: any, b: any) => number;
 };
@@ -69,9 +69,10 @@ export function applyFilter({ inputData, comparator, filterName }: ApplyFilterPr
 
   inputData = stabilizedThis.map((el) => el[0]);
 
-  if (filterName) {
+  // Only apply filter if filterName is not empty
+  if (filterName.trim()) {
     inputData = inputData.filter(
-      (product) => product.SKU.toLowerCase().indexOf(filterName.toLowerCase()) !== -1
+      (order) => order.orderID.toString().includes(filterName) // Convert orderID to string
     );
   }
 

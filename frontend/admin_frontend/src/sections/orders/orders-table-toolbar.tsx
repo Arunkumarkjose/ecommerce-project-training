@@ -51,17 +51,18 @@ export function UserTableToolbar({ numSelected, filterName, onFilterName, onDele
           </Typography>
         ) : (
           <OutlinedInput
-            fullWidth
-            value={filterName}
-            onChange={onFilterName}
-            placeholder="Search by SKU..."
-            startAdornment={
-              <InputAdornment position="start">
-                <Iconify width={20} icon="eva:search-fill" sx={{ color: 'text.disabled' }} />
-              </InputAdornment>
-            }
-            sx={{ maxWidth: 320 }}
-          />
+  fullWidth
+  value={filterName}
+  onChange={onFilterName}
+  placeholder="Search by Order ID..."
+  startAdornment={
+    <InputAdornment position="start">
+      <Iconify width={20} icon="eva:search-fill" sx={{ color: 'text.disabled' }} />
+    </InputAdornment>
+  }
+  sx={{ maxWidth: 320 }}
+/>
+
         )}
 
         {numSelected > 0 ? (
