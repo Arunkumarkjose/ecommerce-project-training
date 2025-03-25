@@ -189,8 +189,8 @@ export function OrdersView() {
                       <OrderTableRow
                         key={row.orderID}
                         row={row}
-                        selected={selectedProducts.includes(row.productID)}
-                        onSelectRow={() => handleSelectRow(row.productID)}
+                        selected={selectedProducts.includes(row.orderID)}
+                        onSelectRow={() => handleSelectRow(row.orderID)}
                         onUserUpdated={fetchOrders} 
                       />
                     ))}

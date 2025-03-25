@@ -177,6 +177,10 @@ export const addressAPI = {
     });
     return response.data;
   },
+  getCountries: async () => {
+    const response = await api.get('/countries');
+    return response.data;
+  },
   addAddress: async (addressData: any) => {
     const response = await api.post('/add-address', addressData);
     return response.data;
@@ -189,6 +193,11 @@ export const addressAPI = {
     const response = await api.put(`/update-address/${addressID}`, addressData);
     return response.data;
   },
+  getShippingCharges: async (countryID: number) => {
+    const response = await api.get(`/shipping-rate/${countryID}`)
+    ;
+    return response.data;
+  }
 };
 
 

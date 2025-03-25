@@ -42,12 +42,14 @@ export function UserView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [openAddUser, setOpenAddUser] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
 
   const [newUser, setNewUser] = useState({
     name: '',
     email: '',
     role: 'user',
     password: '',
+    profile_image:selectedImage
   });
 
   // Fetch users from API
@@ -104,22 +106,33 @@ export function UserView() {
       alert("You do not have permission to add users.");
       return;
     }
-
+  
+    const formData = new FormData();
+    formData.append("name", newUser.name);
+    formData.append("email", newUser.email);
+    formData.append("role", newUser.role);
+    formData.append("password", newUser.password);
+  
+    if (selectedImage) {
+      formData.append("profile_image", selectedImage); // Attach image file
+    }
+  
     try {
-      const response = await axios.post(
-        "http://localhost:8000/add-user",
-        newUser,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      // Update UI with new user
-      fetchUsers(); // Refetch users
+      const response = await axios.post("http://localhost:8000/add-user", formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "multipart/form-data", // Required for file upload
+        },
+      });
+  
+      fetchUsers(); // Refresh user list
       handleCloseAddUser();
     } catch (error) {
       console.error("Error adding user:", error);
       alert("Failed to add user");
     }
   };
+  
 
   const handleBulkDelete = async () => {
     if (!selectedUsers.length) return;
@@ -255,6 +268,26 @@ export function UserView() {
             <MenuItem value="sales">Sales</MenuItem>
             <MenuItem value="user">User</MenuItem>
           </TextField>
+          {/* Image Upload Input */}
+    <input
+      type="file"
+      accept="image/*"
+      onChange={(e) => {
+        if (e.target.files) {
+          setSelectedImage(e.target.files[0]);
+        }
+      }} // Store selected image file
+      style={{ marginTop: "16px" }}
+    />
+
+    {/* Preview Selected Image */}
+    {selectedImage && (
+      <img
+        src={URL.createObjectURL(selectedImage)}
+        alt="Preview"
+        style={{ width: "100%", maxHeight: "200px", marginTop: "10px", objectFit: "contain" }}
+      />
+    )}
           <TextField fullWidth margin="normal" label="Password" name="password" type="password" onChange={handleInputChange} />
         </DialogContent>
         <DialogActions>

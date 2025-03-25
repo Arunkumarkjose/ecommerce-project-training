@@ -39,13 +39,20 @@ const OrderDetailPage: React.FC = () => {
   const fetchRefundDetails = async (orderID: number) => {
     try {
       const response = await ordersAPI.viewRefund(orderID);
-      setRefundDetails(response);
-      console.log("33434",response);
-      console.log(refundDetails);
+  
+      if (response && response.refund_amount) {
+        setRefundDetails(response);
+      } else {
+        setRefundDetails(null);  // Ensure state is null if no valid refund details
+      }
+  
+      console.log("Fetched Refund Details:", response);
     } catch (error) {
       console.error("Failed to fetch refund details:", error);
+      setRefundDetails(null);  // Ensure state is null in case of error
     }
   };
+  
 
   const handleUpdateOrder = async (status:string) => {
     if (!order) return;
@@ -59,7 +66,7 @@ const OrderDetailPage: React.FC = () => {
     try {
       await ordersAPI.updateOrder(Number(order.orderID),status );
       setOrder((prevOrder) => (prevOrder ? { ...prevOrder, status: status||""} : null));
-      if(status=='confirmed'){
+      if(status=='confirmed'){ 
         alert("Payment successful! Order confirmed.");
       }
     } catch (error) {
@@ -153,6 +160,13 @@ const OrderDetailPage: React.FC = () => {
           <p className="text-sm text-gray-600 mt-1">
             Placed on {new Date(order.created_at).toLocaleDateString()} at {new Date(order.created_at).toLocaleTimeString()}
           </p>
+          <p className="text-sm text-gray-600 mt-1">
+            Delivery charge: <span className="font-bold text-black">${order.ShippingRate}</span>
+          </p>
+          <p className="text-sm text-gray-600 mt-1">
+  Total amount: <span className="font-bold text-black">${order.total_price}</span>
+</p>
+
           <p className="text-sm text-gray-600 mt-1">Delivery address: {order.delivery_address}</p>
         </div>
         {/* Order Items */}
@@ -212,7 +226,7 @@ const OrderDetailPage: React.FC = () => {
           </div>
         )}
 
-        {order.status === "cancelled" && refundDetails && (
+        {(order.status === "cancelled" )&& (refundDetails != null) && (
           <div className="px-6 py-4 bg-green-100 text-green-700 text-center">
             <p>Your refund has been completed.</p>
             <p>

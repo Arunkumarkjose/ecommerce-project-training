@@ -10,6 +10,7 @@ import InputAdornment from "@mui/material/InputAdornment";
 import { useRouter } from "src/routes/hooks";
 import { Iconify } from "src/components/iconify";
 import { useAuth } from "src/contexts/AuthContext"; // ✅ Import useAuth hook
+import axios from "axios";
 
 export function SignInView() {
   const router = useRouter();
@@ -37,6 +38,8 @@ export function SignInView() {
     }
   }, [email, password, login, router]);
 
+ 
+
   return (
     <>
       <Box gap={1.5} display="flex" flexDirection="column" alignItems="center" sx={{ mb: 5 }}>
@@ -61,7 +64,9 @@ export function SignInView() {
           sx={{ mb: 3 }}
         />
 
-        <Link href="/forgot-password" variant="body2" color="inherit" sx={{ mb: 1.5 }}>
+        
+
+        <Link href="/admin/forgot-password" variant="body2" color="inherit" sx={{ mb: 1.5 }}>
           Forgot password?
         </Link>
 

@@ -90,3 +90,21 @@ def generate_invoice(order_details):
 
     c.save()
     return invoice_path
+
+async def send_reset_email(email: str, reset_token: str):
+    reset_url = f"http://localhost:3039/reset-password/{reset_token}"  # React frontend URL
+    message = MessageSchema(
+        subject="Password Reset",
+        recipients=[email],  
+        body=f"\nClick the link to reset your password: {reset_url}",
+        subtype=MessageType.html  ,
+    )
+    fast_mail = FastMail(conf)
+
+    try:
+        await fast_mail.send_message(message)
+        print(f"✅ Email successfully sent to {email}")
+        return {"status": "success", "message": f"Email sent to {email}"}
+    except Exception as e:
+        print(f"❌ Failed to send email to {email}: {e}") 
+        return {"status": "failed", "message": str(e)}

@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import axios from 'axios';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Avatar from '@mui/material/Avatar';
@@ -16,13 +17,34 @@ type AccountPopoverProps = {
   data: { label: string; href: string; icon: React.ReactNode }[];
 };
 
-export function AccountPopover({ data }: AccountPopoverProps)  {
-  const { user, logout } = useAuth(); // Get real user data from AuthContext
+export function AccountPopover({ data }: AccountPopoverProps) {
+  const { user, token, logout } = useAuth(); // Get user & token from AuthContext
   const navigate = useNavigate();
   const router = useRouter();
   const pathname = usePathname();
 
   const [openPopover, setOpenPopover] = useState<HTMLButtonElement | null>(null);
+  const [userData, setUserData] = useState({
+    name: '',
+    email: '',
+    profile_image: '',
+  });
+
+  // Fetch user profile from API
+  useEffect(() => {
+    if (!user?.userID || !token) return; // Ensure user ID & token exist
+
+    axios
+      .get(`http://localhost:8000/view-profile/${user.userID}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      .then((response) => {
+        setUserData(response.data); // Set user data with API response
+      })
+      .catch((error) => {
+        console.error("Failed to fetch user profile:", error);
+      });
+  }, [user, token]); // Runs when userID or token changes
 
   const handleOpenPopover = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
     setOpenPopover(event.currentTarget);
@@ -59,8 +81,12 @@ export function AccountPopover({ data }: AccountPopoverProps)  {
             `conic-gradient(${theme.vars.palette.primary.light}, ${theme.vars.palette.warning.light}, ${theme.vars.palette.primary.light})`,
         }}
       >
-        <Avatar alt={user?.name} sx={{ width: 1, height: 1 }}>
-          {user?.name?.charAt(0).toUpperCase()}
+        <Avatar 
+          src={userData.profile_image ? `http://localhost:8000${userData.profile_image}?t=${new Date().getTime()}` : "/default-avatar.png"}
+          alt={userData.name}
+          sx={{ width: 40, height: 40 }}
+        >
+          {!userData.profile_image && userData.name?.charAt(0).toUpperCase()}
         </Avatar>
       </IconButton>
 
@@ -78,11 +104,11 @@ export function AccountPopover({ data }: AccountPopoverProps)  {
       >
         <Box sx={{ p: 2, pb: 1.5 }}>
           <Typography variant="subtitle2" noWrap>
-            {user?.name || "Unknown User"}
+            {userData.name || "Unknown User"}
           </Typography>
 
           <Typography variant="body2" sx={{ color: 'text.secondary' }} noWrap>
-            {user?.email || "No Email"}
+            {userData.email || "No Email"}
           </Typography>
         </Box>
 
@@ -109,7 +135,7 @@ export function AccountPopover({ data }: AccountPopoverProps)  {
             },
           }}
         >
-          <MenuItem selected={pathname === "/profile"} onClick={() => handleClickItem("/profile")}>
+          <MenuItem selected={pathname === "/admin/profile"} onClick={() => handleClickItem("/admin/profile")}>
             Profile
           </MenuItem>
         </MenuList>

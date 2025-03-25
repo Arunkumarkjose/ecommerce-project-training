@@ -1,10 +1,11 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Query, UploadFile, File, Form,BackgroundTasks
-from email_service import send_email, EmailSchema,generate_invoice
+from email_service import send_email, EmailSchema,generate_invoice, send_reset_email
 from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
 from sqlmodel import SQLModel, Session, create_engine, select, Field  
 import jwt
 import datetime
+from datetime import timedelta
 from pydantic import BaseModel, EmailStr
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
@@ -14,6 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import TIMESTAMP, DECIMAL, Enum,desc
 from typing import Literal
 import os
+import secrets
+from fastapi.encoders import jsonable_encoder
 
 
 
@@ -67,7 +70,7 @@ class Address(SQLModel, table=True):
     addressID: int = Field(default=None, primary_key=True)
     customerID: int
     name:str
-    country: str
+    countryID: int
     state: str
     district: str
     city: str
@@ -76,12 +79,20 @@ class Address(SQLModel, table=True):
     pincode: str
     phone_number: str
 
+
+class ShippingRate(SQLModel, table=True):
+    __tablename__ = "shipping_rates"
+    id :int = Field(default=None, primary_key=True)
+    country_name:str
+    shipping_cost : float = Field(..., sa_column=Column(DECIMAL(10,2)), gt=0) 
+
 class Users(SQLModel, table=True):
     userID: int = Field(default=None, primary_key=True)
     name: str
     email: str
     password: str
     role: str
+    profile_image:str
     created_at: datetime.datetime = Field(
         sa_column=Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))
     )
@@ -150,7 +161,7 @@ class Cart_prod(SQLModel, table=True):
 class AddressCreate(SQLModel):
     customerID: int
     name: str
-    country: str
+    countryID: int
     state: str
     district: str
     city: str
@@ -263,6 +274,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     role: str
+    profile_image: UploadFile = File(None),
 
 class CustomerCreate(BaseModel):
     firstname: str
@@ -311,7 +323,11 @@ class UpdateCartItemRequest(BaseModel):
 class orderCreate(BaseModel):
     customerID: int
     addressID: int
+
     
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
 
 
 # Create Tables
@@ -369,7 +385,7 @@ def login_for_access_token(login_data: LoginRequest, db: Session = Depends(get_d
     if  user:
         access_token = create_access_token({"sub": user.email, "role": user.role})
         refresh_token = create_refresh_token({"sub": user.email, "role": user.role})
-        return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer", "name": user.name, "email": user.email, }
+        return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer", "name": user.name, "email": user.email,"image_path":user.profile_image, "userID":user.userID }
 
         
     customer=authenticate_customer(login_data.username, login_data.password, db)
@@ -402,24 +418,45 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
 
 #  Add User (Admin Only) with Password Hashing
 @app.post("/add-user")
-def add_user(user_data: UserCreate, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    if current_user["role"] not in ["admin"]:
+async def add_user(
+    name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    role: str = Form(...),
+    profile_image: UploadFile = File(None),  # Optional file upload
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Access denied")
 
-    hashed_password = hash_password(user_data.password)
+    hashed_password = hash_password(password)
+
+    image_path = None
+    if profile_image:
+        file_extension = profile_image.filename.split(".")[-1]
+        file_name = f"{email}.{file_extension}"  # Save as email-based filename
+        file_path = os.path.join(UPLOAD_DIR, file_name)
+
+        with open(file_path, "wb") as buffer:
+            buffer.write(await profile_image.read())  # Save file
+
+        image_path = f"/assets/images/{file_name}"
 
     new_user = Users(
-        name=user_data.name,
-        email=user_data.email,
+        name=name,
+        email=email,
         password=hashed_password,
-        role=user_data.role,
+        role=role,
+        profile_image=image_path,
     )
 
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    
-    return {"message": "User added successfully"}
+
+    return {"message": "User added successfully", "profile_image": image_path}
+
 
 @app.get("/view-users")
 def view_products(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -434,11 +471,23 @@ def get_user_details(user_id: int, current_user: dict = Depends(get_current_user
     if current_user["role"] not in ["manager", "admin", "sales"]:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    user = db.query(Users).filter(Users.id == user_id).first()
+    user = db.query(Users).filter(Users.userID == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     return {"name": user.name, "email": user.email}
+
+@app.get("/view-profile/{user_id}")
+def get_user_profile(user_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # if current_user["role"] not in ["manager", "admin", "sales"]:
+    #     raise HTTPException(status_code=403, detail="Access denied")
+
+    user = db.query(Users).filter(Users.userID == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {"name": user.name, "email": user.email, "role":user.role,"profile_image":user.profile_image}
+
 
 
 def get_all_subcategory_ids(category_id: int, db: Session) -> List[int]:
@@ -452,6 +501,59 @@ def get_all_subcategory_ids(category_id: int, db: Session) -> List[int]:
         categories_to_check.extend(subcategories)
 
     return subcategory_ids
+
+#  Add Product (Admin Only)
+@app.post("/add-product")
+async def add_product(
+    name: str = Form(...),
+    description: str = Form(...),
+    SKU: str = Form(...),
+    price: int = Form(...),
+    quantity: int = Form(None),
+    image: UploadFile = File(None),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user["role"] not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    image_path = None
+    if image:
+        file_extension = image.filename.split(".")[-1]
+        file_name = f"{SKU}.{file_extension}"  # Save as SKU-based name
+        file_path = os.path.join(UPLOAD_DIR, file_name)
+
+        with open(file_path, "wb") as buffer:
+            buffer.write(await image.read())  # Save file
+
+        image_path = f"/assets/images/{file_name}"
+
+    new_product = Products(
+        name=name,
+        description=description,
+        SKU=SKU,
+        price=price,
+        quantity=quantity,
+        image_path=image_path,
+    )
+    db.add(new_product)
+    db.commit()
+    db.refresh(new_product)
+
+    return {"message": "Product added successfully", "productID": new_product.productID}
+
+
+def get_full_path(db: Session, category_id: Optional[int]) -> str:
+    path_segments = []
+    
+    while category_id:
+        category = db.get(Category, category_id)
+        if not category:
+            break
+        path_segments.append(category.name)
+        category_id = category.parentID  # Move up the hierarchy
+
+    return "/".join(reversed(path_segments))  # Reverse to maintain root-first order
 
 # View Products (Admin & Sales)
 @app.get("/view-products")
@@ -521,6 +623,68 @@ def view_categories( db: Session = Depends(get_db)):
     categories = db.exec(select(Category)).all()
     return {"Categories": categories}
 
+@app.put("/edit_profile/{user_id}")
+async def update_user(
+    user_id: int,
+    name: str = Form(...),
+    email: str = Form(...),
+    profile_image: UploadFile = File(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["email"] != email:
+        raise HTTPException(status_code=403, detail="You can only update your own profile")
+
+    user = db.query(Users).filter(Users.userID == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.name = name
+    user.email = email
+
+    if profile_image:
+        file_extension = profile_image.filename.split(".")[-1]
+        file_name = f"{email}.{file_extension}"  # Save as email-based filename
+        file_path = os.path.join(UPLOAD_DIR, file_name)
+
+        with open(file_path, "wb") as buffer:
+            buffer.write(await profile_image.read())  # Save file
+
+        user.profile_image = f"/assets/images/{file_name}"
+        
+   
+    db.commit()
+    return user
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+    email:str
+
+@app.put("/change-password/{user_id}")
+async def change_password(
+    user_id: int,
+    request: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    # Ensure the logged-in user is the one making the request
+    if current_user["email"] != request.email:
+        raise HTTPException(status_code=403, detail="You are not allowed to change this password")
+
+    user = db.query(Users).filter(Users.userID == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not verify_password(request.current_password, user.password):
+        raise HTTPException(status_code=403, detail="Current password is incorrect")
+
+    user.password = hash_password(request.new_password)
+    db.commit()
+
+    return {"message": "Password changed successfully"}
+
+
 
 @app.put("/update-user/{user_id}")
 def update_user(user_id: int, user_data: UserCreate, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -567,59 +731,6 @@ def delete_users(data: DeleteUsersRequest, current_user: dict = Depends(get_curr
     
     db.commit()
     return {"message": f"{len(users_to_delete)} users deleted successfully"}
-
-#  Add Product (Admin Only)
-@app.post("/add-product")
-async def add_product(
-    name: str = Form(...),
-    description: str = Form(...),
-    SKU: str = Form(...),
-    price: int = Form(...),
-    quantity: int = Form(None),
-    image: UploadFile = File(None),
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    if current_user["role"] not in ["admin"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    image_path = None
-    if image:
-        file_extension = image.filename.split(".")[-1]
-        file_name = f"{SKU}.{file_extension}"  # Save as SKU-based name
-        file_path = os.path.join(UPLOAD_DIR, file_name)
-
-        with open(file_path, "wb") as buffer:
-            buffer.write(await image.read())  # Save file
-
-        image_path = f"/assets/images/{file_name}"
-
-    new_product = Products(
-        name=name,
-        description=description,
-        SKU=SKU,
-        price=price,
-        quantity=quantity,
-        image_path=image_path,
-    )
-    db.add(new_product)
-    db.commit()
-    db.refresh(new_product)
-
-    return {"message": "Product added successfully", "productID": new_product.productID}
-
-
-def get_full_path(db: Session, category_id: Optional[int]) -> str:
-    path_segments = []
-    
-    while category_id:
-        category = db.get(Category, category_id)
-        if not category:
-            break
-        path_segments.append(category.name)
-        category_id = category.parentID  # Move up the hierarchy
-
-    return "/".join(reversed(path_segments))  # Reverse to maintain root-first order
 
 #  Add Category (Admin Only)
 @app.post("/add-category")
@@ -1098,17 +1209,57 @@ def add_address(address: AddressCreate, current_user: dict = Depends(get_current
     db.refresh(new_address)
     return new_address
 
+
+
 @app.get("/view-addresses")
-def get_addresses(customerID: int = Query(..., description="Customer ID"), current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_addresses(
+    customerID: int = Query(..., description="Customer ID"), 
+    current_user: dict = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    # Check if the customer exists
     existing_customer = db.get(Customer, customerID)
-    
     if not existing_customer:
         raise HTTPException(status_code=404, detail="User not found")
-    if(current_user["email"]!=existing_customer.Email):
-        
+    
+    # Ensure the logged-in user is only accessing their own addresses
+    if current_user["email"] != existing_customer.Email:
         raise HTTPException(status_code=403, detail="Access denied")
-    addresses = db.exec(select(Address).where(Address.customerID == customerID)).all()
-    return addresses
+
+    # Fetch all addresses and join with ShippingRate to get country_name
+    addresses = (
+        db.exec(
+            select(
+                Address.addressID,
+                Address.customerID,
+                Address.name,
+                Address.state,
+                Address.district,
+                Address.city,
+                Address.street,
+                Address.building_name,
+                Address.pincode,
+                Address.phone_number,
+                Address.countryID,
+                ShippingRate.country_name.label("country")  # Get country name
+            )
+            .join(ShippingRate, ShippingRate.id == Address.countryID)
+            .where(Address.customerID == customerID)
+        )
+        .all()
+    )
+
+    # Convert result to a list of dictionaries
+    address_list = [dict(zip(row._fields, row)) for row in addresses]
+
+    return jsonable_encoder(address_list)
+@app.get("/countries", tags=["Address"])
+def get_countries(db: Session = Depends(get_db)):
+    """Fetch all countries from shipping_rates table"""
+    countries = db.exec(select(ShippingRate)).all()
+    print(countries)
+    return [{"id": country.id, "name": country.country_name} for country in countries]
+
 
 @app.put("/update-address/{addressID}")
 def update_address(addressID: int, address: AddressCreate, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -1123,7 +1274,7 @@ def update_address(addressID: int, address: AddressCreate, current_user: dict = 
         raise HTTPException(status_code=403, detail="Access denied")
     existing_address.name = address.name
     existing_address.building_name = address.building_name
-    existing_address.country = address.country
+    existing_address.countryID = address.countryID
     existing_address.state = address.state
     existing_address.district = address.district
     existing_address.city = address.city
@@ -1148,6 +1299,12 @@ def delete_address(addressID: int, current_user: dict = Depends(get_current_user
     db.commit()
     return {"message": "Address deleted successfully"}
 
+@app.get("/shipping-rate/{country_id}")
+def get_shipping_rate(country_id: int, db: Session = Depends(get_db)):
+    rate = db.query(ShippingRate).filter(ShippingRate.id == country_id).first()
+    if not rate:
+        raise HTTPException(status_code=404, detail="Shipping rate not found for this country")
+    return {"shipping_cost": float(rate.shipping_cost)}
 
 @app.post("/create-order")
 def create_order(order_data: orderCreate, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -1169,8 +1326,10 @@ def create_order(order_data: orderCreate, background_tasks: BackgroundTasks, cur
         cart_items = db.exec(select(Cart_prod).where(Cart_prod.cartID == cart.cartID)).all()
         if not cart_items:
             raise HTTPException(status_code=404, detail="No items in the cart")
+        shipping_rate = db.query(ShippingRate).filter(ShippingRate.id == existing_address.countryID).first()
+        shipping_cost = float(shipping_rate.shipping_cost)
+        total_price = sum([float(cart_item.price) * cart_item.quantity for cart_item in cart_items]) + shipping_cost
 
-        total_price = sum(cart_item.price * cart_item.quantity for cart_item in cart_items)
 
         new_order = Orders(
             customerID=order_data.customerID,
@@ -1217,7 +1376,7 @@ def create_order(order_data: orderCreate, background_tasks: BackgroundTasks, cur
             "customer_name": f"{existing_customer.FirstName} {existing_customer.LastName}",
             "customerEmail": existing_customer.Email,
             "customerPhone": existing_customer.PhoneNumber,
-            "delivery_address": f"{existing_address.name}, {existing_address.street}, {existing_address.city}, {existing_address.state}, {existing_address.country} - {existing_address.pincode}",
+            "delivery_address": f"{existing_address.name}, {existing_address.street}, {existing_address.city}, {existing_address.state}, - {existing_address.pincode}",
             "total_price": new_order.total_price,
             "products": ordered_products
         }
@@ -1247,7 +1406,7 @@ def view_orders(customerID: int = Query(..., description="Customer ID") , curren
     orders = db.exec(select(Orders).where(Orders.customerID == customerID)).all()
     return orders
 
-
+# should fetch country
 @app.get("/view-order/{orderID}")
 def view_order_products(orderID: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     # Check if the order exists
@@ -1264,9 +1423,9 @@ def view_order_products(orderID: int, current_user: dict = Depends(get_current_u
     delivery_address = db.get(Address, existing_order.addressID)
     if not delivery_address:
         raise HTTPException(status_code=404, detail="Delivery address not found")
-
+    country=db.get(ShippingRate, delivery_address.countryID)
     # Concatenate the delivery address as a single string
-    delivery_address_str = f"{delivery_address.name}, {delivery_address.building_name}, {delivery_address.street}, {delivery_address.district}, {delivery_address.state}, {delivery_address.country} - {delivery_address.pincode}"
+    delivery_address_str = f"{delivery_address.name}, {delivery_address.building_name}, {delivery_address.street}, {delivery_address.district}, {delivery_address.state},{country.country_name}  - {delivery_address.pincode}"
 
     # Retrieve products associated with the given orderID along with product details
     order_products = (
@@ -1314,6 +1473,7 @@ def view_order_products(orderID: int, current_user: dict = Depends(get_current_u
         "total_price": existing_order.total_price,
         "delivery_address": delivery_address_str,  # ✅ Include formatted address
         "products": products,
+        "ShippingRate":country.shipping_cost,
         "rejected_reason": rejection_reason ,
         "rejected": return_rejected  # ✅ Include boolean return rejection status
     }
@@ -1370,17 +1530,18 @@ def update_order_status(orderID: int, status: UpdateOrderStatusRequest,backgroun
         db.commit()
         db.refresh(cancellation)
         payment = db.exec(select(Payments).where(Payments.orderID == orderID)).first()
-        refund=Refunds(
+        if(payment):
+         refund=Refunds(
             cancellationID=cancellation.id,
             customerID=order.customerID,
             paymentID=payment.id,
             refund_amount=payment.amount,
             status="pending",  # Initially set to pending
             processed_at=text("CURRENT_TIMESTAMP")
-        )
-        db.add(refund)
-        order.payment_status="refunded"
-        payment.status="refunded"
+          )
+         db.add(refund)
+         order.payment_status="refunded"
+         payment.status="refunded"
         order_products = (
         db.exec(
             select(Order_prod, Products)
@@ -1482,10 +1643,6 @@ def view_orders(current_user: dict = Depends(get_current_user),db: Session = Dep
     # Format response
     response = []
     for order, email, address in orders_with_details:
-        address_str = (
-            f"{address.name}, {address.building_name}, {address.street}, "
-            f"{address.district}, {address.state}, {address.country} - {address.pincode}"
-        )
         response.append({
             "orderID": order.orderID,
             "customerID": order.customerID,
@@ -1494,7 +1651,7 @@ def view_orders(current_user: dict = Depends(get_current_user),db: Session = Dep
             "created_At": order.created_at,
             "status": order.status,
             
-            "delivery_address": address_str
+            
         })
     
     return response
@@ -1520,13 +1677,14 @@ def view_order(orderID: int, current_user: dict = Depends(get_current_user), db:
 
     # Fetch address details
     address = db.get(Address, order.addressID)
+    country=db.get(ShippingRate, address.countryID)
     if not address:
         raise HTTPException(status_code=404, detail="Address not found")
 
     # Concatenate address into a formatted string
     address_str = (
         f"{address.name}, {address.building_name}, {address.street}, "
-        f"{address.district}, {address.state}, {address.country} - {address.pincode}"
+        f"{address.district}, {address.state}, {country.country_name} - {address.pincode}"
     )
 
     # Fetch ordered products with product details
@@ -1560,7 +1718,28 @@ def view_order(orderID: int, current_user: dict = Depends(get_current_user), db:
         return_record = db.exec(select(Returns).where(Returns.orderID == orderID)).first()
 
         if return_record:
-            pickup_address = db.get(Address, return_record.pickup_addressID)
+            pickup_address= (
+            db.exec(
+             select(
+                Address.addressID,
+                Address.customerID,
+                Address.name,
+                Address.state,
+                Address.district,
+                Address.city,
+                Address.street,
+                Address.building_name,
+                Address.pincode,
+                Address.phone_number,
+                Address.countryID,
+                ShippingRate.country_name.label("country")  # Get country name
+            )
+            .join(ShippingRate, ShippingRate.id == Address.countryID)
+            .where(Address.addressID == return_record.pickup_addressID)
+            )
+            .first()
+            )
+            # pickup_address = db.get(Address, return_record.pickup_addressID)
             if not pickup_address:
                 raise HTTPException(status_code=404, detail="Pickup address not found")
 
@@ -1720,11 +1899,12 @@ def view_refund(orderID: int, current_user: dict = Depends(get_current_user), db
         cancellation=db.exec(select(OrderCancellation).where(OrderCancellation.orderID ==  orderID)).first()
         refund = db.exec(select(Refunds).where(Refunds.cancellationID == cancellation.id)).first()
     # Fetch payment details
-    payment = db.get(Payments, refund.paymentID)
-    if not payment:
-        raise HTTPException(status_code=404, detail="Payment record not found")
+    if(refund):
+      payment = db.get(Payments, refund.paymentID)
+      if not payment:
+         raise HTTPException(status_code=404, detail="Payment record not found")
 
-    return {
+      return {
         "refund_id": refund.id,
         "order_id": orderID,
         "customer_id": refund.customerID,
@@ -1740,5 +1920,57 @@ def view_refund(orderID: int, current_user: dict = Depends(get_current_user), db
             "created_at": payment.created_at,
         }
     }
+    else:
+        return {"message":"No refund found for this order"}
+
+
+
+def create_reset_token(email: str):
+    """Generate a password reset token with expiration"""
+    expire = datetime.datetime.utcnow() + timedelta(hours=1)  # Token expires in 1 hour
+    payload = {"sub": email, "exp": expire}
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+def verify_reset_token(token: str):
+    """Verify token and return email if valid"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload["sub"]
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Access token expired, use refresh token")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+
+@app.post("/forgot-password")
+async def forgot_password(request: PasswordResetRequest,background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    user = db.query(Users).filter(Users.email == request.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Email not found")
+    
+    reset_token = create_reset_token(user.email)
+    background_tasks.add_task(send_reset_email, user.email, reset_token)
+    
+    return {"message": "Password reset link sent to your email."}
+
+class ResetPassword(BaseModel):
+    token: str
+    new_password: str
+
+@app.post("/reset-password")
+async def reset_password(request: ResetPassword, db: Session = Depends(get_db)):
+    email = verify_reset_token(request.token)
+    if not email:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+
+    user = db.query(Users).filter(Users.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    hashed_password = pwd_context.hash(request.new_password)
+    user.password = hashed_password
+    db.commit()
+
+    return {"message": "Password reset successfully."}
 
 

@@ -69,6 +69,7 @@ export interface Address {
   customerID: number;
   name: string;
   country: string;
+  countryID:number;
   state: string;
   district: string;
   city: string;
@@ -84,6 +85,7 @@ export interface Order {
   userId: string;
   products: CartItem[];
   total_price: number;
+  ShippingRate: number;
   status: 'pending' | 'cancelled' | 'shipped' | 'delivered' | 'return_requested' | 'returned' | "return_approved" | "picked_up";
   created_at: string;
   shippingAddress: string;

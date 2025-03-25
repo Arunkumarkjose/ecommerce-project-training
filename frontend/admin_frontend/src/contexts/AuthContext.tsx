@@ -4,14 +4,18 @@ import axios from "axios";
 
 // Define User type
 type User = {
+  userID:number
   email: string;
   role: string;
   name:string
+  profile_image:string
+  
 } | null;
 
 // Define AuthContext type
 interface AuthContextType {
   user: User;
+  setUser: (user: User | null) => void;
   token: string | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
@@ -102,6 +106,23 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
   }, []);
 
+  useEffect(() => {
+    const savedToken = localStorage.getItem("access_token");
+    const savedUser = localStorage.getItem("user");
+  
+    if (savedToken) {
+      setToken(savedToken);
+      axios.defaults.headers.common["Authorization"] = `Bearer ${savedToken}`;
+    }
+  
+    if (savedUser) {
+      setUser(JSON.parse(savedUser)); // Restore user from localStorage
+    }
+  }, []);
+
+  
+  
+
   // Login function with explicit parameter types
   const login = async (email: string, password: string) => {
     try {
@@ -109,7 +130,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         username: email, // FastAPI expects "username"
         password: password
       });
-      const { access_token, refresh_token, name, email: userEmail } = response.data;
+      const { access_token, refresh_token, name, image_path, userID, email: userEmail } = response.data;
       // const newToken = response.data.access_token;
       // const newRefreshToken = response.data.refresh_token;
 
@@ -117,10 +138,17 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setRefreshToken(refresh_token);
       localStorage.setItem("access_token", access_token);
       localStorage.setItem("refresh_token", refresh_token);
-
       const decoded = parseJwt(access_token);
+      localStorage.setItem("user", JSON.stringify({ 
+        name, 
+        email: userEmail, 
+        role: decoded?.role, 
+        profile_image: image_path, 
+        userID:userID
+      }));
+      
       if (decoded) {
-        setUser({ name, email: userEmail, role: decoded.role });
+        setUser({ name, email: userEmail, role: decoded.role,profile_image: image_path, userID:userID });
       }
     } catch (error) {
       console.error("Login error:", error);
@@ -154,11 +182,13 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setRefreshToken(null);
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
+    localStorage.removeItem("user");  
     navigate("/admin/sign-in");
   };
+  
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout }}>
+    <AuthContext.Provider value={{ user,setUser, token, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

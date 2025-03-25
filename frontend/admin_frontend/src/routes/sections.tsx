@@ -20,6 +20,9 @@ export const ProductsPage = lazy(() => import('src/pages/products'));
 export const OrdersPage = lazy(() => import('src/pages/orders'));
 export const Page404 = lazy(() => import('src/pages/page-not-found'));
 export const OrderDetailPage = lazy(() => import('src/pages/orderDetail'));
+export const ProfilePage = lazy(() => import('src/pages/profile'));
+export const ForgotPasswordPage = lazy(() => import('src/sections/auth/forgot-password'));
+export const ResetPasswordPage = lazy(() => import('src/sections/auth/reset-password'));
 
 // ----------------------------------------------------------------------
 
@@ -53,7 +56,10 @@ export function Router() {
         { path: '/admin/blog', element: <PrivateRoute><BlogPage /></PrivateRoute> },
         { path: '/admin/categories', element: <PrivateRoute><CategoryPage /></PrivateRoute> },
         { path: '/admin/orders', element: <PrivateRoute><OrdersPage /></PrivateRoute> },
-        { path: '/admin/orders/:orderID', element: <PrivateRoute><OrderDetailPage /></PrivateRoute> }, //  Add order details route
+        { path: '/admin/orders/:orderID', element: <PrivateRoute><OrderDetailPage /></PrivateRoute> },
+        { path: '/admin/profile/', element: <PrivateRoute><ProfilePage /></PrivateRoute> },
+        { path: '/admin/forgot-password/', element: <ForgotPasswordPage />},
+        { path: '/reset-password/:token', element: <ResetPasswordPage /> },//  Add order details route
       ],
     },
     {

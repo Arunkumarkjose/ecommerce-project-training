@@ -15,6 +15,7 @@ const CheckoutPage = () => {
     customerID: user?.customerid || 0,
     name: "",
     country: "",
+    countryID:0,
     state: "",
     district: "",
     city: "",
@@ -26,6 +27,25 @@ const CheckoutPage = () => {
   const [orderSummary, setOrderSummary] = useState<Order | null>(null);
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
   const [step, setStep] = useState(1);
+  const [countries, setCountries] = useState<{ id: number; name: string }[]>([]);
+  const [shippingCost, setShippingCost] = useState<number | null>(null);
+  const [totalCost, setTotalCost] = useState<number>(0); // Assuming you have a base total cost
+
+
+
+  useEffect(() => {
+  const fetchCountries = async () => {
+    try {
+      const response = await addressAPI.getCountries();
+      setCountries(response);
+      console.log(response);
+    } catch (error) {
+      console.error("Error fetching countries", error);
+    }
+  };
+
+  fetchCountries();
+}, []);
 
   useEffect(() => {
     if (user?.customerid) {
@@ -44,8 +64,31 @@ const CheckoutPage = () => {
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setNewAddress({ ...newAddress, [e.target.name]: e.target.value });
+  const handleContinueToReviewOrder = async () => {
+    if (!selectedAddress) return;
+  
+    try {
+      const response = await addressAPI.getShippingCharges(selectedAddress.countryID) ;
+      console.log(response);
+      
+      
+      
+      setShippingCost(response.shipping_cost);
+      const itemsprice = items.reduce((total, item) => total + item.price * item.quantity, 0);
+      setTotalCost(itemsprice + response.shipping_cost); // Add shipping cost to total
+      setStep(2); // Move to the next step
+    } catch (error) {
+      console.error("Error fetching shipping rate:", error);
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+  
+    setNewAddress((prev) => ({
+      ...prev,
+      [name]: name === "countryID" ? Number(value) : value // Ensure countryID is a number
+    }));
   };
 
   const handleAddAddress = async (e: React.FormEvent) => {
@@ -57,6 +100,7 @@ const CheckoutPage = () => {
         customerID: user?.customerid ?? 0,
         name: "",
         country: "",
+        countryID:0,
         state: "",
         district: "",
         city: "",
@@ -112,9 +156,7 @@ const CheckoutPage = () => {
   
   
 
-  const getTotalPrice = () => {
-    return items.reduce((total, item) => total + item.price * item.quantity, 0).toFixed(2);
-  };
+  
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -147,7 +189,7 @@ const CheckoutPage = () => {
             Add New Address
           </button>
 
-          <button onClick={() => setStep(2)} disabled={!selectedAddress} className="bg-indigo-500 text-white px-4 py-2 mt-4 rounded hover:bg-indigo-600 ml-4">
+          <button onClick={handleContinueToReviewOrder} disabled={!selectedAddress} className="bg-indigo-500 text-white px-4 py-2 mt-4 rounded hover:bg-indigo-600 ml-4">
             Continue to Review Order
           </button>
         </div>
@@ -170,7 +212,15 @@ const CheckoutPage = () => {
                 </li>
               ))}
             </ul>
-            <p className="font-bold mt-2">Total Price: ${getTotalPrice()}</p>
+            {shippingCost !== null && (
+      <div className="mt-4">
+        <p className="text-lg">Shipping Cost: <span className="font-bold">${shippingCost.toFixed(2)}</span></p>
+      </div>
+    )}
+           {/* Display Total Price */}
+    <div className="mt-4">
+      <p className="text-lg">Total Price: <span className="font-bold">${totalCost.toFixed(2)}</span></p>
+    </div>
           </div>
 
           <button onClick={handlePlaceOrder} className="bg-indigo-500 text-white px-4 py-2 mt-4 rounded hover:bg-indigo-600">
@@ -200,8 +250,23 @@ const CheckoutPage = () => {
         <form onSubmit={handleAddAddress}>
           <div className="grid grid-cols-1 gap-4">
             <input type="text" name="name" value={newAddress.name} onChange={handleChange} placeholder="Name" className="border p-2 rounded" required />
-            <input type="text" name="country" value={newAddress.country} onChange={handleChange} placeholder="Country" className="border p-2 rounded" required />
-            <input type="text" name="state" value={newAddress.state} onChange={handleChange} placeholder="State" className="border p-2 rounded" required />
+            <label className="block">
+                      <span className="text-gray-700">Country</span>
+                       <select 
+                          name="countryID" 
+                          value={newAddress.countryID || ""} 
+                          onChange={handleChange} 
+                          className="border p-2 rounded w-full mt-1" 
+                           required
+                         >
+                          <option value="">Select Country</option>
+                            {countries.map((country) => (
+                              <option key={country.id} value={country.id}>
+                               {country.name}
+                            </option>
+                               ))}
+                          </select>
+                       </label>               <input type="text" name="state" value={newAddress.state} onChange={handleChange} placeholder="State" className="border p-2 rounded" required />
             <input type="text" name="district" value={newAddress.district} onChange={handleChange} placeholder="District" className="border p-2 rounded" required />
             <input type="text" name="city" value={newAddress.city} onChange={handleChange} placeholder="City" className="border p-2 rounded" required />
             <input type="text" name="street" value={newAddress.street} onChange={handleChange} placeholder="Street" className="border p-2 rounded" required />
