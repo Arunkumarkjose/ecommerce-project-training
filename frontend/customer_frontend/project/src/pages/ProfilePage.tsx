@@ -5,7 +5,7 @@ import { authAPI } from '../api';
 import { Link } from 'react-router-dom';
 
 const ProfilePage: React.FC = () => {
-  const { user,initializeUser } = useAuthStore();
+  const { user,initializeUser ,setUser} = useAuthStore();
   
   useEffect(() => {
     if (user) {
@@ -57,27 +57,26 @@ const ProfilePage: React.FC = () => {
     setLoading(true);
     setSuccess(false);
     setError('');
-    
+
     try {
-      await authAPI.updateProfile({
+      // Update the profile via API
+      const updatedUser = await authAPI.updateProfile({
         customerid: Number(formData.customerid),
         firstname: formData.firstname,
         lastname: formData.lastname,
         email: formData.email,
         phone: formData.phone,
       });
-      await authAPI.TokenRefresh();
-      initializeUser();
+
+      // Update the user state directly
+      setUser({
+        ...user,
+        firstName: formData.firstname,
+        lastName: formData.lastname,
+        email: formData.email,
+        phone: formData.phone,
+      });
       
-      // setUser({
-      //   ...user,
-      //   id: user.id || '',
-      //   firstName: formData.firstname,
-      //   lastName: formData.lastname,
-      //   email: formData.email,
-      //   phone: formData.phone,
-      // });
-    
       setSuccess(true);
     } catch (error) {
       console.error('Failed to update profile:', error);

@@ -80,6 +80,24 @@ class Address(SQLModel, table=True):
     phone_number: str
 
 
+class OrderAddress(SQLModel, table=True):
+    __tablename__ = "order_addresses"
+    orderAddressID: int = Field(default=None, primary_key=True)
+    orderID: int 
+    customerID: int
+    name: str
+    countryID: int   
+    state: str
+    district: str
+    city: str
+    street: str
+    building_name: str | None = None
+    pincode: str
+    phone_number: str
+    created_at: datetime.datetime = Field(
+        sa_column=Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))
+    )
+
 class ShippingRate(SQLModel, table=True):
     __tablename__ = "shipping_rates"
     id :int = Field(default=None, primary_key=True)
@@ -173,7 +191,6 @@ class AddressCreate(SQLModel):
 class Orders(SQLModel, table=True):
     orderID: Optional[int] = Field(default=None, primary_key=True)
     customerID: int = Field(..., foreign_key="customers.CustomerID")
-    addressID: int = Field(..., foreign_key="address.addressID")
     total_price: float = Field(..., sa_column=Column(DECIMAL(10,2)), gt=0)  # Decimal type to match MySQL
 
     created_at: datetime.datetime = Field(
@@ -372,6 +389,7 @@ def create_refresh_token(data: dict, expires_delta: int = REFRESH_TOKEN_EXPIRE_D
     to_encode = data.copy()
     expire = datetime.datetime.utcnow() + datetime.timedelta(days=expires_delta)
     to_encode.update({"exp": expire})
+    to_encode["iat"] = datetime.datetime.utcnow()
     return jwt.encode(to_encode, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
 
 # Login Endpoint
@@ -1316,6 +1334,7 @@ def create_order(order_data: orderCreate, background_tasks: BackgroundTasks, cur
             raise HTTPException(status_code=403, detail="Access denied")
 
         existing_address = db.get(Address, order_data.addressID)
+        
         if not existing_address:
             raise HTTPException(status_code=404, detail="Address not found")
 
@@ -1333,13 +1352,25 @@ def create_order(order_data: orderCreate, background_tasks: BackgroundTasks, cur
 
         new_order = Orders(
             customerID=order_data.customerID,
-            addressID=order_data.addressID,
             total_price=total_price,
             status="pending"
         )
         db.add(new_order)
         db.commit()
         db.refresh(new_order)
+        order_address=OrderAddress(orderID=new_order.orderID,
+                                   customerID=new_order.customerID,
+                                   name=existing_address.name,
+                                   building_name=existing_address.building_name,
+                                   countryID=existing_address.countryID,
+                                   state=existing_address.state,
+                                   district=existing_address.district,
+                                   city=existing_address.city,
+                                   street=existing_address.street,
+                                   pincode=existing_address.pincode,
+                                   phone_number=existing_address.phone_number)
+        db.add(order_address)
+        db.commit()
         ordered_products = []  # Store product details for invoice
         for cart_item in cart_items:
             existing_orderprod = db.exec(select(Order_prod)
@@ -1420,7 +1451,7 @@ def view_order_products(orderID: int, current_user: dict = Depends(get_current_u
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Retrieve the delivery address details
-    delivery_address = db.get(Address, existing_order.addressID)
+    delivery_address =  db.exec(select(OrderAddress).where(OrderAddress.orderID == orderID)).first()
     if not delivery_address:
         raise HTTPException(status_code=404, detail="Delivery address not found")
     country=db.get(ShippingRate, delivery_address.countryID)
@@ -1584,12 +1615,16 @@ def update_order_status(orderID: int, status: UpdateOrderStatusRequest,backgroun
 
     elif(status.status=="return_requested"):
         print('4444444444444444442@@@@@@@@@@@@')
+        pickpaddress=db.exec(
+        select(OrderAddress)
+        .where(OrderAddress.orderID == orderID)  
+        ).first()
         orderreturn=Returns(
             orderID=order.orderID,
             customerID=order.customerID,
             reason=status.reason,
             status="requested",
-            pickup_addressID=order.addressID,
+            pickup_addressID=pickpaddress.orderAddressID,
         )
         db.add(orderreturn)
         email = EmailSchema(
@@ -1634,15 +1669,20 @@ def view_orders(current_user: dict = Depends(get_current_user),db: Session = Dep
     # Fetch all orders along with customer email and address
     orders_with_details = (
         db.exec(
-            select(Orders, Customer.Email, Address)
+            select(
+                Orders,
+                Customer.Email,
+                
+            )
             .join(Customer, Orders.customerID == Customer.CustomerID)
-            .join(Address, Orders.addressID == Address.addressID)
+           
+            .distinct()  # Ensures unique orders are returned
         ).all()
     )
 
     # Format response
     response = []
-    for order, email, address in orders_with_details:
+    for order, email in orders_with_details:
         response.append({
             "orderID": order.orderID,
             "customerID": order.customerID,
@@ -1676,7 +1716,7 @@ def view_order(orderID: int, current_user: dict = Depends(get_current_user), db:
         raise HTTPException(status_code=404, detail="Customer not found")
 
     # Fetch address details
-    address = db.get(Address, order.addressID)
+    address = db.exec(select(OrderAddress).where(OrderAddress.orderID == orderID)).first()
     country=db.get(ShippingRate, address.countryID)
     if not address:
         raise HTTPException(status_code=404, detail="Address not found")
@@ -1721,21 +1761,21 @@ def view_order(orderID: int, current_user: dict = Depends(get_current_user), db:
             pickup_address= (
             db.exec(
              select(
-                Address.addressID,
-                Address.customerID,
-                Address.name,
-                Address.state,
-                Address.district,
-                Address.city,
-                Address.street,
-                Address.building_name,
-                Address.pincode,
-                Address.phone_number,
-                Address.countryID,
+                OrderAddress.orderAddressID,
+                OrderAddress.customerID,
+                OrderAddress.name,
+                OrderAddress.state,
+                OrderAddress.district,
+                OrderAddress.city,
+                OrderAddress.street,
+                OrderAddress.building_name,
+                OrderAddress.pincode,
+                OrderAddress.phone_number,
+                OrderAddress.countryID,
                 ShippingRate.country_name.label("country")  # Get country name
             )
-            .join(ShippingRate, ShippingRate.id == Address.countryID)
-            .where(Address.addressID == return_record.pickup_addressID)
+            .join(ShippingRate, ShippingRate.id == OrderAddress.countryID)
+            .where(OrderAddress.orderAddressID == return_record.pickup_addressID)
             )
             .first()
             )

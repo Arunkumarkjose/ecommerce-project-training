@@ -60,10 +60,7 @@ export const authAPI = {
         Authorization: `Bearer ${refreshToken}`,
       },
     });
-    const { access_token, role, token_type } = response.data;
-    localStorage.setItem('token', access_token);
-    axios.defaults.headers.common["Authorization"] = `Bearer ${access_token}`;
-    return response.data;
+    return response;
   }
 };
 

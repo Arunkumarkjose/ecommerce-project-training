@@ -5,13 +5,15 @@ import axios from 'axios';
 import useCartStore from '../store/cartStore';
 import { cartAPI } from '../api';
 
+const ACCESS_TOKEN_EXPIRE_MINUTES = 180;
+const REFRESH_TOKEN_EXPIRE_DAYS = 7;
+
 const useAuthStore = create<AuthState>((set) => {
-  // Initialize state from localStorage if available
   const token = localStorage.getItem('token');
   let user: User | null = null;
   let isAuthenticated = false;
 
-  function parseJwt(token: string): { sub: string; role: string; customerid:number;firstName:string;lastName:string;phone:string } | null {
+  function parseJwt(token: string): { sub: string; role: string; customerid: number; firstName: string; lastName: string; phone: string; iat: number } | null {
     try {
       const base64Url = token.split('.')[1];
       const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
@@ -45,23 +47,67 @@ const useAuthStore = create<AuthState>((set) => {
     const refreshToken = localStorage.getItem("refresh_token");
     if (!refreshToken) {
       console.log("No refresh token available");
+      logout(); // Logout if refresh token is missing
       return;
     }
     try {
-      const response = await axios.post("http://localhost:8000/refresh", null, {
-        headers: { Authorization: `Bearer ${refreshToken}` }
-      });
+      const response = await authAPI.TokenRefresh();
       const newAccessToken = response.data.access_token;
       set({ token: newAccessToken });
       localStorage.setItem("token", newAccessToken);
+      console.log("refreshed access")
+      console.log(newAccessToken)
+      console.log(localStorage.getItem("token"))
       axios.defaults.headers.common["Authorization"] = `Bearer ${newAccessToken}`;
     } catch (error) {
       console.error("Failed to refresh token:", error);
-      set({ user: null, token: null, isAuthenticated: false });
-      localStorage.removeItem("token");
-      localStorage.removeItem("refresh_token");
+      logout(); // Logout if refresh token fails
     }
   };
+
+  const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('refresh_token');
+    set({
+      user: null,
+      token: null,
+      isAuthenticated: false,
+    });
+    const { setItems } = useCartStore.getState();
+    setItems([]);
+    delete axios.defaults.headers.common["Authorization"];
+  };
+
+  // Periodic token refresh
+  const startTokenRefresh = () => {
+    const accessTokenRefreshInterval = (ACCESS_TOKEN_EXPIRE_MINUTES - 1) * 60 * 1000; // Refresh 1 minute before expiry
+    const refreshTokenExpiryTime = REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60 * 1000; // Convert days to milliseconds
+
+    // Check and refresh access token periodically
+    setInterval(async () => {
+      const refreshToken = localStorage.getItem("refresh_token");
+      if (!refreshToken) {
+        logout();
+        return;
+      }
+
+      const refreshTokenCreatedAt = parseJwt(refreshToken)?.iat || 0;
+      const currentTime = Math.floor(Date.now() / 1000);
+
+      // Check if refresh token has expired
+      if (currentTime - refreshTokenCreatedAt > refreshTokenExpiryTime / 1000) {
+        console.log("Refresh token expired");
+        logout();
+        return;
+      }
+
+      // Refresh access token
+      await refreshAccessToken();
+    }, accessTokenRefreshInterval);
+  };
+
+  // Start token refresh on initialization
+  startTokenRefresh();
 
   return {
     user,
@@ -106,18 +152,7 @@ const useAuthStore = create<AuthState>((set) => {
       }
     },
 
-    logout: () => {
-      localStorage.removeItem('token');
-      localStorage.removeItem('refresh_token');
-      set({
-        user: null,
-        token: null,
-        isAuthenticated: false,
-      });
-      const { setItems } = useCartStore.getState();
-      setItems([]);
-      delete axios.defaults.headers.common["Authorization"];
-    },
+    logout,
 
     setUser: (user: User | null) => set({ user }),
 
@@ -127,7 +162,7 @@ const useAuthStore = create<AuthState>((set) => {
         try {
           const decoded = parseJwt(token);
           if (decoded) {
-            const user = { id:"",email: decoded.sub, customerid: decoded.customerid, role: decoded.role, username: '', name: '', firstName:decoded.firstName,lastName:decoded.lastName,phone:decoded.phone} as User;
+            const user = { id: "", email: decoded.sub, customerid: decoded.customerid, role: decoded.role, username: '', name: '', firstName: decoded.firstName, lastName: decoded.lastName, phone: decoded.phone } as User;
             set({
               token,
               user,

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import useAuthStore from "../store/authStore"; // Import auth store
 import useCartStore from "../store/cartStore"; // Import cart store
-import { Address, Order, CartItem } from "../types";
+import { Address, Order,  } from "../types";
 import { addressAPI, ordersAPI } from "../api";
 import { useNavigate } from "react-router-dom";
 
