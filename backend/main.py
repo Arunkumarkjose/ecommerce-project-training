@@ -1,3 +1,4 @@
+import json
 from fastapi import FastAPI, Depends, HTTPException, status, Query, UploadFile, File, Form,BackgroundTasks
 from email_service import send_email, EmailSchema,generate_invoice, send_reset_email
 from fastapi.security import OAuth2PasswordBearer
@@ -10,14 +11,15 @@ from pydantic import BaseModel, EmailStr
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 import urllib.parse
-from sqlalchemy import Column, TIMESTAMP, text,PrimaryKeyConstraint
+from sqlalchemy import Column, TIMESTAMP, text,PrimaryKeyConstraint, Integer, String, Enum, ForeignKey, TIMESTAMP, DECIMAL
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import TIMESTAMP, DECIMAL, Enum,desc
 from typing import Literal
 import os
 import secrets
 from fastapi.encoders import jsonable_encoder
-
+from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 
 
 # FastAPI App
@@ -140,6 +142,10 @@ class Products(SQLModel, table=True):
     price: int
     quantity: int
     image_path: Optional[str] = Field(default=None, max_length=500) 
+
+
+
+
 
 class Category(SQLModel, table=True):
     categoryID: int = Field(default=None, primary_key=True)
@@ -324,6 +330,57 @@ class ProductCreate(SQLModel):
     price: int
     quantity: Optional[int] = None
 
+class ProductOption(SQLModel, table=True):
+    __tablename__ = "product_options"
+
+    id : Optional[int] = Field(default=None, primary_key=True)
+    title : str
+    type : str = Field(
+        default="dropdown",
+        sa_column=Column(
+            Enum("dropdown","radio"),
+            default="dropdown"
+        )
+    )
+    status : str = Field(
+        default="active",
+        sa_column=Column(
+            Enum("active","inactive"),
+            default="active"
+        )
+    )
+    productID : int
+    is_required : str = Field(
+        default="yes",
+        sa_column=Column(
+            Enum("yes","no"),
+            default="yes"
+        )
+    )
+    created_at : datetime.datetime = Field(
+        sa_column=Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))
+    )
+    updated_at : datetime.datetime = Field(
+        sa_column=Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))
+    )
+
+class ProductOptionValue(SQLModel, table=True):
+    __tablename__ = "product_option_values"
+
+    id : Optional[int] = Field(default=None, primary_key=True)
+    product_option_id : int  # FK to product_options
+    title : str
+    price : float = Field(sa_column=Column(DECIMAL(10, 2), nullable=False))
+    sku : str
+    quantity : int
+    created_at : datetime.datetime = Field(
+        sa_column=Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))
+    )
+    updated_at : datetime.datetime = Field(
+        sa_column=Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))
+    )
+
+    
 
 class AddProductToCartRequest(BaseModel):
     customerID: int
@@ -528,6 +585,7 @@ async def add_product(
     SKU: str = Form(...),
     price: int = Form(...),
     quantity: int = Form(None),
+    options: str = Form(...), 
     image: UploadFile = File(None),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -557,6 +615,19 @@ async def add_product(
     db.add(new_product)
     db.commit()
     db.refresh(new_product)
+    options_data = json.loads(options)  
+    for option in options_data:
+        product_option = ProductOption(productID=new_product.productID, title=option["title"], type=option["type"], required=option["required"])
+        db.add(product_option)
+        db.commit()
+        db.refresh(product_option)
+
+        for value in option["values"]:
+            product_option_value = ProductOptionValue(
+                product_option_id =product_option.id, title=value["title"], price=value["price"], sku=value["sku"], quantity=value["quantity"]
+            )
+            db.add(product_option_value)
+            db.commit()
 
     return {"message": "Product added successfully", "productID": new_product.productID}
 
@@ -834,6 +905,32 @@ def delete_cat_prod(data: DeleteCatProdRequest, current_user: dict = Depends(get
     db.commit()
     return {"message": "Records deleted successfully"}
 
+@app.get("/get-product-variations/{product_id}")
+async def get_product_variations(
+    product_id: int, 
+    db: Session = Depends(get_db)
+):
+    product_options = db.query(ProductOption).filter(ProductOption.productID == product_id).all()
+
+    if not product_options:
+        raise HTTPException(status_code=404, detail="No variations found for this product")
+
+    variations = []
+    for option in product_options:
+        option_values = db.query(ProductOptionValue).filter(ProductOptionValue.product_option_id == option.id).all()
+        variations.append({
+            "option_id": option.id,
+            "option": option.title,
+            "type": option.type,
+            "is_required": option.is_required,
+            "status": option.status,
+            "values": [{"id": value.id, "title": value.title, "price": value.price, "sku": value.sku, "quantity": value.quantity} for value in option_values]
+        })
+    print("************************", variations)
+    return {"product_id": product_id, "variations": variations}
+
+
+
 @app.put("/update-product/{product_id}")
 async def update_product(
     product_id: int,
@@ -843,7 +940,8 @@ async def update_product(
     price: int = Form(...),
     quantity: Optional[int] = Form(None),
     category_ids: Optional[List[int]] = Form([]),
-    image: Optional[UploadFile] = File(None),  # ✅ Accept image file
+    variations: Optional[str] = Form(None),  # Receive variations as a JSON string
+    image: Optional[UploadFile] = File(None),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -870,7 +968,7 @@ async def update_product(
             raise HTTPException(status_code=400, detail=f"Category ID {category_id} not found")
         db.add(Cat_prod(productID=product_id, categoryID=category_id))
 
-    # ✅ Save the new image if provided
+    # Save the new image if provided
     if image:
         file_extension = image.filename.split(".")[-1]
         file_name = f"{SKU}.{file_extension}"  # Save as SKU-based name
@@ -882,9 +980,96 @@ async def update_product(
         # Update the image path in the database
         existing_product.image_path = f"/assets/images/{file_name}"
 
+    # Handle variations (options & values)
+    if variations:
+        try:
+            variations_data = json.loads(variations)  # Parse JSON string into a Python object
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid variations format")
+
+        # Get all existing options and values for the product
+        existing_options = db.query(ProductOption).filter(ProductOption.productID == product_id).all()
+        existing_option_ids = {option.id for option in existing_options}
+
+        # Get all option IDs and value IDs from the frontend data
+        frontend_option_ids = {variation.get("option_id") for variation in variations_data if variation.get("option_id")}
+        frontend_value_ids = {
+            value.get("id")
+            for variation in variations_data
+            for value in variation["values"]
+            if value.get("id")
+        }
+
+        # Delete options that are not in the frontend data
+        options_to_delete = existing_option_ids - frontend_option_ids
+        if options_to_delete:
+            db.query(ProductOptionValue).filter(ProductOptionValue.product_option_id.in_(options_to_delete)).delete()
+            db.query(ProductOption).filter(ProductOption.id.in_(options_to_delete)).delete()
+
+        # Process each variation from the frontend
+        for variation in variations_data:
+            option_id = variation.get("option_id")
+            if not option_id:  # New option
+                new_option = ProductOption(
+                    productID=product_id,
+                    title=variation["option"],
+                    type=variation.get("type", "dropdown"),
+                    is_required=variation.get("is_required", "yes"),
+                    status=variation.get("status", "active"),
+                )
+                db.add(new_option)
+                db.flush()  # Get the new option ID
+
+                for value in variation["values"]:
+                    db.add(ProductOptionValue(
+                        product_option_id=new_option.id,
+                        title=value["title"],
+                        price=value.get("price", 0),
+                        sku=value["sku"],
+                        quantity=value["quantity"]
+                    ))
+            else:  # Existing option
+                existing_option = db.query(ProductOption).filter(ProductOption.id == option_id).first()
+                if existing_option:
+                    existing_option.title = variation["option"]
+                    existing_option.type = variation.get("type", "dropdown")
+                    existing_option.is_required = variation.get("is_required", "yes")
+                    existing_option.status = variation.get("status", "active")
+
+                    # Get all existing values for this option
+                    existing_values = db.query(ProductOptionValue).filter(ProductOptionValue.product_option_id == option_id).all()
+                    existing_value_ids = {value.id for value in existing_values}
+
+                    # Get all value IDs from the frontend data for this option
+                    frontend_values = variation["values"]
+                    frontend_value_ids_for_option = {value.get("id") for value in frontend_values if value.get("id")}
+
+                    # Delete values that are not in the frontend data
+                    values_to_delete = existing_value_ids - frontend_value_ids_for_option
+                    if values_to_delete:
+                        db.query(ProductOptionValue).filter(ProductOptionValue.id.in_(values_to_delete)).delete()
+
+                    # Update or add values
+                    for value in frontend_values:
+                        value_id = value.get("id")
+                        if not value_id:  # New value
+                            db.add(ProductOptionValue(
+                                product_option_id=option_id,
+                                title=value["title"],
+                                price=value.get("price", 0),
+                                sku=value["sku"],
+                                quantity=value["quantity"]
+                            ))
+                        else:  # Existing value
+                            existing_value = db.query(ProductOptionValue).filter(ProductOptionValue.id == value_id).first()
+                            if existing_value:
+                                existing_value.title = value["title"]
+                                existing_value.price = value.get("price", 0)
+                                existing_value.sku = value["sku"]
+                                existing_value.quantity = value["quantity"]
+
     db.commit()
     return {"message": "Product updated successfully"}
-
 @app.get("/get-product-categories/{product_id}")
 def get_product_categories(product_id: int, db: Session = Depends(get_db)):
     assigned_categories = db.exec(select(Cat_prod.categoryID).where(Cat_prod.productID == product_id)).all()
@@ -1234,7 +1419,7 @@ def get_addresses(
     customerID: int = Query(..., description="Customer ID"), 
     current_user: dict = Depends(get_current_user), 
     db: Session = Depends(get_db)
-):
+    ):
     # Check if the customer exists
     existing_customer = db.get(Customer, customerID)
     if not existing_customer:

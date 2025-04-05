@@ -23,6 +23,7 @@ import { SelectChangeEvent } from '@mui/material/Select';
 
 import { Iconify } from 'src/components/iconify';
 import { useAuth } from 'src/contexts/AuthContext';
+import { Divider, Grid, Paper, Table, TableBody, TableContainer, TableHead, Typography } from '@mui/material';
 
 export type ProductProps = {
   productID: number;
@@ -31,7 +32,8 @@ export type ProductProps = {
   SKU: string;
   price: number;
   quantity: number;
-  image_path?: string; 
+  image_path?: string;
+  variations?: { option: string; values: { title: string; price: number; sku: string; quantity: number }[]; type?: string }[];
 };
 
 type ProductTableRowProps = {
@@ -51,6 +53,7 @@ export function UserTableRow({ row, selected, onSelectRow, onUserUpdated }: Prod
   const [selectedCategories, setSelectedCategories] = useState<number[]>([]);
   const [productCategories, setProductCategories] = useState<string[]>([]);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [productVariations, setProductVariations] = useState<{ option: string; values: { title: string; price: number; sku: string; quantity: number }[]; type?: string }[]>(row.variations || []);
   const [previewImage, setPreviewImage] = useState<string | null>(row.image_path ? `http://localhost:8000${row.image_path}` : null);
 
 
@@ -73,30 +76,42 @@ export function UserTableRow({ row, selected, onSelectRow, onUserUpdated }: Prod
   }, []);
 
   const handleOpenEditDialog = async () => {
-    setEditedProduct({ name: row.name, description: row.description, SKU: row.SKU, price: row.price, quantity: row.quantity });
+    setEditedProduct({
+        name: row.name,
+        description: row.description,
+        SKU: row.SKU,
+        price: row.price,
+        quantity: row.quantity
+    });
     setOpenEditDialog(true);
     handleClosePopover();
 
-    // Fetch categories
     try {
-      const response = await axios.get("http://localhost:8000/view-categories", {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setCategories(response.data.Categories);
-    } catch (err) {
-      console.error("Failed to fetch categories", err);
-    }
+        // Fetch categories
+        const categoryRes = await axios.get("http://localhost:8000/view-categories", {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        setCategories(categoryRes.data.Categories);
 
-    // Fetch assigned categories
-    try {
-      const response = await axios.get(`http://localhost:8000/get-product-categories/${row.productID}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setSelectedCategories(response.data.assignedCategories);
+        // Fetch assigned categories
+        const assignedCategoriesRes = await axios.get(`http://localhost:8000/get-product-categories/${row.productID}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        setSelectedCategories(assignedCategoriesRes.data.assignedCategories);
+
+        // Fetch product variations (options and values)
+        
+        const response = await axios.get(`http://localhost:8000/get-product-variations/${row.productID}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+        console.log("Product Variations:", response.data);
+        console.log(response.data.variations);
+        setProductVariations(response.data.variations);  
     } catch (err) {
-      console.error("Failed to fetch assigned categories", err);
+        console.error("Failed to fetch product details", err);
     }
-  };
+};
+
 
   const handleCloseEditDialog = () => {
     setOpenEditDialog(false);
@@ -118,6 +133,66 @@ export function UserTableRow({ row, selected, onSelectRow, onUserUpdated }: Prod
   const handleCategoryChange = (event: SelectChangeEvent<number[]>) => {
     setSelectedCategories(event.target.value as number[]);
   };
+
+  const handleVariationChange = (index: number, key: string, value: string) => {
+      const updatedVariations = [...productVariations];
+      if (key === "option") {
+        updatedVariations[index].option = value;
+      } else {
+        updatedVariations[index].values = value.split(",").map((v) => ({
+          title: v.trim(),
+          price: 0,
+          sku: "",
+          quantity: 0,
+        }));
+      }
+      setProductVariations(updatedVariations);
+    };
+  
+  const handleRemoveValue = (optionIndex: number, valueIndex: number) => {
+      const updatedVariations = [...productVariations];
+      updatedVariations[optionIndex].values = updatedVariations[optionIndex].values.filter(
+        (_, index) => index !== valueIndex
+      );
+      setProductVariations(updatedVariations);
+    };
+
+  const handleValueChange = (optionIndex: number, valueIndex: number, key: string, value: string | number) => {
+      const updatedVariations = [...productVariations];
+      const updatedValues = [...updatedVariations[optionIndex].values];
+      if (typeof updatedValues[valueIndex] === 'object') {
+        updatedValues[valueIndex] = { ...updatedValues[valueIndex], [key]: value };
+      } else {
+        updatedValues[valueIndex] = {
+          title: typeof value === 'string' ? value : '',
+          price: 0,
+          sku: '',
+          quantity: 0,
+        };
+      }
+      updatedVariations[optionIndex].values = updatedValues;
+      setProductVariations(updatedVariations);
+    };
+  
+  const handleAddVariation = () => {
+    setProductVariations([...productVariations, { option: "", values: [] }]);
+  };
+  
+  const handleRemoveVariation = (index: number) => {
+    setProductVariations(productVariations.filter((_, i) => i !== index));
+  };
+
+  const handleAddValue = (optionIndex: number) => {
+    const updatedVariations = [...productVariations];
+    updatedVariations[optionIndex].values.push({
+      title: "",
+      price: 0,
+      sku: "",
+      quantity: 0,
+    });
+    setProductVariations(updatedVariations);
+  };
+  
 
   // Fetch product categories
   useEffect(() => {
@@ -160,20 +235,30 @@ export function UserTableRow({ row, selected, onSelectRow, onUserUpdated }: Prod
   // Update product API call
   const handleSaveEdit = async () => {
     try {
+      console.log("Edited Product:", editedProduct);
+      console.log("Selected Categories:", selectedCategories);
+      console.log("Product Variations:", productVariations);
+  
       const formData = new FormData();
       formData.append("name", editedProduct.name);
       formData.append("description", editedProduct.description);
       formData.append("SKU", editedProduct.SKU);
       formData.append("price", editedProduct.price.toString());
       formData.append("quantity", editedProduct.quantity?.toString() || "");
+  
       selectedCategories.forEach((categoryID) => formData.append("category_ids", categoryID.toString()));
   
-      // Append image only if a new one is selected
+      // Serialize variations into a JSON string
+      const serializedVariations = JSON.stringify(productVariations);
+      formData.append("variations", serializedVariations);
+  
       if (selectedImage) {
         formData.append("image", selectedImage);
       }
   
-      await axios.put(
+      console.log("FormData:", formData);
+  
+      const response = await axios.put(
         `http://localhost:8000/update-product/${row.productID}`,
         formData,
         {
@@ -181,7 +266,8 @@ export function UserTableRow({ row, selected, onSelectRow, onUserUpdated }: Prod
         }
       );
   
-      // ✅ Update the preview image immediately by appending a timestamp
+      console.log("Update Response:", response.data);
+  
       if (selectedImage) {
         setPreviewImage(`http://localhost:8000/assets/images/${row.productID}_${selectedImage.name}?t=${new Date().getTime()}`);
       }
@@ -193,6 +279,7 @@ export function UserTableRow({ row, selected, onSelectRow, onUserUpdated }: Prod
       alert("Failed to update product");
     }
   };
+  
   
   
 
@@ -283,44 +370,248 @@ export function UserTableRow({ row, selected, onSelectRow, onUserUpdated }: Prod
       </Popover>
 
       {/* Edit Product Dialog */}
-      <Dialog open={openEditDialog} onClose={handleCloseEditDialog}>
-  <DialogTitle>Edit Product</DialogTitle>
-  <DialogContent>
-    <TextField fullWidth margin="normal" label="Name" name="name" value={editedProduct.name} onChange={handleInputChange} />
-    <TextField fullWidth margin="normal" label="Description" name="description" value={editedProduct.description} onChange={handleInputChange} />
-    <TextField fullWidth margin="normal" label="SKU" name="SKU" value={editedProduct.SKU} onChange={handleInputChange} />
-    <TextField fullWidth margin="normal" label="Price" name="price" value={editedProduct.price} onChange={handleInputChange} />
-    <TextField fullWidth margin="normal" label="Quantity" name="quantity" value={editedProduct.quantity} onChange={handleInputChange} />
 
-    <FormControl fullWidth margin="normal">
-      <InputLabel>Categories</InputLabel>
-      <Select
-        multiple
-        value={selectedCategories}
-        onChange={handleCategoryChange}
-        renderValue={(selected) => selected.map((id) => categories.find((cat) => cat.categoryID === id)?.name).join(', ')}
-      >
-        {categories.map((category) => (
-          <MenuItem key={category.categoryID} value={category.categoryID}>
-            {category.name}
-          </MenuItem>
-        ))}
-      </Select>
-    </FormControl>
+<Dialog open={openEditDialog} onClose={handleCloseEditDialog} fullWidth maxWidth="lg">
+  <DialogTitle sx={{ fontSize: '1.5rem', fontWeight: 'bold'}}>Edit Product</DialogTitle>
+  <DialogContent sx={{ padding: 4}}>
 
-    {/* ✅ Display Image Preview */}
-    {previewImage && <img src={previewImage} alt="Product Preview" style={{ width: "100px", height: "100px", marginTop: "10px" }} />}
+    <Grid sx={{marginTop:0}} container spacing={3}>
+      {/* Product Details */}
+      <Grid item xs={6}>
+        <TextField
+          fullWidth
+          label="Name"
+          name="name"
+          value={editedProduct.name}
+          onChange={handleInputChange}
+        />
+      </Grid>
+      <Grid item xs={6}>
+        <TextField
+          fullWidth
+          label="Description"
+          name="description"
+          value={editedProduct.description}
+          onChange={handleInputChange}
+        />
+      </Grid>
+      <Grid item xs={6}>
+        <TextField
+          fullWidth
+          label="SKU"
+          name="SKU"
+          value={editedProduct.SKU}
+          onChange={handleInputChange}
+        />
+      </Grid>
+      <Grid item xs={6}>
+        <TextField
+          fullWidth
+          label="Price"
+          name="price"
+          type="number"
+          value={editedProduct.price}
+          onChange={handleInputChange}
+        />
+      </Grid>
+      <Grid item xs={6}>
+        <TextField
+          fullWidth
+          label="Quantity"
+          name="quantity"
+          type="number"
+          value={editedProduct.quantity}
+          onChange={handleInputChange}
+        />
+      </Grid>
 
-    {/* ✅ Image Upload Field */}
-    <Button variant="contained" component="label" sx={{ mt: 2 }}>
-      Upload New Image
-      <input type="file" hidden accept="image/*" onChange={handleImageChange} />
-    </Button>
+      {/* Category Selection */}
+      <Grid item xs={6}>
+        <FormControl fullWidth>
+          <InputLabel>Categories</InputLabel>
+          <Select
+            multiple
+            value={selectedCategories}
+            onChange={handleCategoryChange}
+            renderValue={(selected) =>
+              selected.map((id) => categories.find((cat) => cat.categoryID === id)?.name).join(", ")
+            }
+          >
+            {categories.map((category) => (
+              <MenuItem key={category.categoryID} value={category.categoryID}>
+                {category.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Grid>
 
+      {/* Image Upload */}
+      <Grid item xs={12}>
+        <Typography variant="subtitle1" gutterBottom>
+          Upload Product Image
+        </Typography>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={handleImageChange}
+        />
+        {previewImage && (
+          <img
+            src={previewImage}
+            alt="Preview"
+            style={{ width: "100%", maxHeight: "300px", marginTop: "10px", objectFit: "contain" }}
+          />
+        )}
+      </Grid>
+    </Grid>
+
+    {/* Product Variations Section */}
+    <Divider sx={{ marginY: 3 }} />
+    <Typography variant="h6" sx={{ fontWeight: 'bold', marginBottom: 2 }}>
+      Product Variations
+    </Typography>
+    <Paper elevation={3} sx={{ padding: 3 }}>
+      <TableContainer>
+        <Table size="medium">
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Option Title</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Type</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', width: '50%' }}>Values</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {productVariations.map((option, optionIndex) => (
+              <TableRow key={optionIndex}>
+                {/* Option Title */}
+                <TableCell>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Option Title"
+                    value={option.option}
+                    onChange={(e) => handleVariationChange(optionIndex, "option", e.target.value)}
+                  />
+                </TableCell>
+
+                {/* Option Type */}
+                <TableCell>
+                  <Select
+                    fullWidth
+                    size="small"
+                    value={option.type || "dropdown"}
+                    onChange={(e) => handleVariationChange(optionIndex, "type", e.target.value)}
+                  >
+                    <MenuItem value="dropdown">Dropdown</MenuItem>
+                    <MenuItem value="radio">Radio Button</MenuItem>
+                  </Select>
+                </TableCell>
+
+                {/* Option Values */}
+                <TableCell>
+                  {option.values.map((value, valueIndex) => (
+                    <Box
+                      key={valueIndex}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 2,
+                        marginBottom: 2,
+                      }}
+                    >
+                      <TextField
+                        size="small"
+                        label="Title"
+                        value={value.title}
+                        onChange={(e) =>
+                          handleValueChange(optionIndex, valueIndex, "title", e.target.value)
+                        }
+                        sx={{ width: '30%' }}
+                      />
+                      <TextField
+                        size="small"
+                        label="Price"
+                        type="number"
+                        value={value.price || ""}
+                        onChange={(e) =>
+                          handleValueChange(optionIndex, valueIndex, "price", e.target.value)
+                        }
+                        sx={{ width: '25%' }}
+                      />
+                      <TextField
+                        size="small"
+                        label="SKU"
+                        value={value.sku}
+                        onChange={(e) =>
+                          handleValueChange(optionIndex, valueIndex, "sku", e.target.value)
+                        }
+                        sx={{ width: '20%' }}
+                      />
+                      <TextField
+                        size="small"
+                        label="Quantity"
+                        type="number"
+                        value={value.quantity}
+                        onChange={(e) =>
+                          handleValueChange(optionIndex, valueIndex, "quantity", e.target.value)
+                        }
+                        sx={{ width: '20%' }}
+                      />
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        size="small"
+                        onClick={() => handleRemoveValue(optionIndex, valueIndex)} // Remove individual value
+                      >
+                        Remove
+                      </Button>
+                    </Box>
+                  ))}
+                </TableCell>
+
+                {/* Actions */}
+                <TableCell>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Button
+                      variant="contained"
+                      color="secondary"
+                      size="small"
+                      onClick={() => handleAddValue(optionIndex)} // Add value to the current option
+                    >
+                      Add Value
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      size="small"
+                      onClick={() => handleRemoveVariation(optionIndex)} // Remove the entire option
+                    >
+                      Remove Option
+                    </Button>
+                  </Box>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
+        <Button onClick={handleAddVariation} variant="contained">
+          Add New Option
+        </Button>
+      </Box>
+    </Paper>
   </DialogContent>
-  <DialogActions>
-    <Button onClick={handleCloseEditDialog} color="error">Cancel</Button>
-    <Button onClick={handleSaveEdit} variant="contained">Save</Button>
+
+  <DialogActions sx={{ padding: 3 }}>
+    <Button onClick={handleCloseEditDialog} color="error" variant="outlined">
+      Cancel
+    </Button>
+    <Button onClick={handleSaveEdit} variant="contained" color="primary">
+      Save Changes
+    </Button>
   </DialogActions>
 </Dialog>
 
