@@ -22,24 +22,25 @@ const useCartStore = create<CartState>((set, get) => ({
         };
       } else {
         return {
-          items: [...state.items, { ...product, quantity }]
+          items: [...state.items, { ...product, id: product.productID, quantity }]
         };
       }
     });
   },
 
-  removeFromCart: (productId: number) => {
+  removeFromCart: (id: number) => {
     set((state) => ({
-      items: state.items.filter(item => item.productID !== productId)
+      items: state.items.filter(item => item.id !== id) // Use `id` instead of `productID`
     }));
   },
-  updateQuantity: (productId: number, quantity: number | null) => {
+  
+  updateQuantity: (id: number, quantity: number | null) => {
     set((state) => ({
-      items: state.items.map(item => 
-        item.productID === productId 
+      items: state.items.map(item =>
+        item.id === id
           ? { ...item, quantity: quantity !== null ? quantity : item.quantity }
           : item
-      )
+      ),
     }));
   },
 

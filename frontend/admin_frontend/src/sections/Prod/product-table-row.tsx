@@ -135,19 +135,18 @@ export function UserTableRow({ row, selected, onSelectRow, onUserUpdated }: Prod
   };
 
   const handleVariationChange = (index: number, key: string, value: string) => {
-      const updatedVariations = [...productVariations];
-      if (key === "option") {
-        updatedVariations[index].option = value;
-      } else {
-        updatedVariations[index].values = value.split(",").map((v) => ({
-          title: v.trim(),
-          price: 0,
-          sku: "",
-          quantity: 0,
-        }));
-      }
-      setProductVariations(updatedVariations);
-    };
+    const updatedVariations = [...productVariations];
+  
+    if (key === "option") {
+      // Update the option title
+      updatedVariations[index].option = value;
+    } else if (key === "type") {
+      // Update the option type without modifying the values
+      updatedVariations[index].type = value;
+    }
+  
+    setProductVariations(updatedVariations);
+  };
   
   const handleRemoveValue = (optionIndex: number, valueIndex: number) => {
       const updatedVariations = [...productVariations];
@@ -483,118 +482,118 @@ export function UserTableRow({ row, selected, onSelectRow, onUserUpdated }: Prod
             </TableRow>
           </TableHead>
           <TableBody>
-            {productVariations.map((option, optionIndex) => (
-              <TableRow key={optionIndex}>
-                {/* Option Title */}
-                <TableCell>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    label="Option Title"
-                    value={option.option}
-                    onChange={(e) => handleVariationChange(optionIndex, "option", e.target.value)}
-                  />
-                </TableCell>
+  {productVariations.map((option, optionIndex) => (
+    <TableRow key={optionIndex}>
+      {/* Option Title */}
+      <TableCell>
+        <TextField
+          fullWidth
+          size="small"
+          label="Option Title"
+          value={option.option}
+          onChange={(e) => handleVariationChange(optionIndex, "option", e.target.value)}
+        />
+      </TableCell>
 
-                {/* Option Type */}
-                <TableCell>
-                  <Select
-                    fullWidth
-                    size="small"
-                    value={option.type || "dropdown"}
-                    onChange={(e) => handleVariationChange(optionIndex, "type", e.target.value)}
-                  >
-                    <MenuItem value="dropdown">Dropdown</MenuItem>
-                    <MenuItem value="radio">Radio Button</MenuItem>
-                  </Select>
-                </TableCell>
+      {/* Option Type */}
+      <TableCell>
+        <Select
+          fullWidth
+          size="small"
+          value={option.type || "dropdown"}
+          onChange={(e) => handleVariationChange(optionIndex, "type", e.target.value)}
+        >
+          <MenuItem value="dropdown">Dropdown</MenuItem>
+          <MenuItem value="radio">Radio Button</MenuItem>
+        </Select>
+      </TableCell>
 
-                {/* Option Values */}
-                <TableCell>
-                  {option.values.map((value, valueIndex) => (
-                    <Box
-                      key={valueIndex}
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 2,
-                        marginBottom: 2,
-                      }}
-                    >
-                      <TextField
-                        size="small"
-                        label="Title"
-                        value={value.title}
-                        onChange={(e) =>
-                          handleValueChange(optionIndex, valueIndex, "title", e.target.value)
-                        }
-                        sx={{ width: '30%' }}
-                      />
-                      <TextField
-                        size="small"
-                        label="Price"
-                        type="number"
-                        value={value.price || ""}
-                        onChange={(e) =>
-                          handleValueChange(optionIndex, valueIndex, "price", e.target.value)
-                        }
-                        sx={{ width: '25%' }}
-                      />
-                      <TextField
-                        size="small"
-                        label="SKU"
-                        value={value.sku}
-                        onChange={(e) =>
-                          handleValueChange(optionIndex, valueIndex, "sku", e.target.value)
-                        }
-                        sx={{ width: '20%' }}
-                      />
-                      <TextField
-                        size="small"
-                        label="Quantity"
-                        type="number"
-                        value={value.quantity}
-                        onChange={(e) =>
-                          handleValueChange(optionIndex, valueIndex, "quantity", e.target.value)
-                        }
-                        sx={{ width: '20%' }}
-                      />
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        size="small"
-                        onClick={() => handleRemoveValue(optionIndex, valueIndex)} // Remove individual value
-                      >
-                        Remove
-                      </Button>
-                    </Box>
-                  ))}
-                </TableCell>
+      {/* Option Values */}
+      <TableCell>
+        {option.values.map((value, valueIndex) => (
+          <Box
+            key={valueIndex}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              marginBottom: 2,
+            }}
+          >
+            <TextField
+              size="small"
+              label="Title"
+              value={value.title}
+              onChange={(e) =>
+                handleValueChange(optionIndex, valueIndex, "title", e.target.value)
+              }
+              sx={{ width: '30%' }}
+            />
+            <TextField
+              size="small"
+              label="Price"
+              type="number"
+              value={value.price || ""}
+              onChange={(e) =>
+                handleValueChange(optionIndex, valueIndex, "price", e.target.value)
+              }
+              sx={{ width: '25%' }}
+            />
+            <TextField
+              size="small"
+              label="SKU"
+              value={value.sku}
+              onChange={(e) =>
+                handleValueChange(optionIndex, valueIndex, "sku", e.target.value)
+              }
+              sx={{ width: '20%' }}
+            />
+            <TextField
+              size="small"
+              label="Quantity"
+              type="number"
+              value={value.quantity}
+              onChange={(e) =>
+                handleValueChange(optionIndex, valueIndex, "quantity", e.target.value)
+              }
+              sx={{ width: '20%' }}
+            />
+            <Button
+              variant="outlined"
+              color="error"
+              size="small"
+              onClick={() => handleRemoveValue(optionIndex, valueIndex)} // Remove individual value
+            >
+              Remove
+            </Button>
+          </Box>
+        ))}
+      </TableCell>
 
-                {/* Actions */}
-                <TableCell>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <Button
-                      variant="contained"
-                      color="secondary"
-                      size="small"
-                      onClick={() => handleAddValue(optionIndex)} // Add value to the current option
-                    >
-                      Add Value
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      color="error"
-                      size="small"
-                      onClick={() => handleRemoveVariation(optionIndex)} // Remove the entire option
-                    >
-                      Remove Option
-                    </Button>
-                  </Box>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
+      {/* Actions */}
+      <TableCell>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Button
+            variant="contained"
+            color="secondary"
+            size="small"
+            onClick={() => handleAddValue(optionIndex)} // Add value to the current option
+          >
+            Add Value
+          </Button>
+          <Button
+            variant="outlined"
+            color="error"
+            size="small"
+            onClick={() => handleRemoveVariation(optionIndex)} // Remove the entire option
+          >
+            Remove Option
+          </Button>
+        </Box>
+      </TableCell>
+    </TableRow>
+  ))}
+</TableBody>
         </Table>
       </TableContainer>
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>

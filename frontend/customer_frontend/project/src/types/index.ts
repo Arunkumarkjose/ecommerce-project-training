@@ -45,12 +45,14 @@ export interface Review {
 }
 
 export interface CartItem {
+  id:number;
   productID: number;
   name: string;
   image_path: string;
   quantity: number;
   price: number;
-  product_stock:number
+  product_stock:number;
+  selected_options?: { [key: string]: string }; 
 }
 
 export interface CartState {
@@ -81,6 +83,7 @@ export interface Address {
 
 
 export interface Order {
+  id:number;
   orderID: string;
   userId: string;
   products: CartItem[];

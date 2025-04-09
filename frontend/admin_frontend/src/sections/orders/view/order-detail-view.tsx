@@ -45,6 +45,7 @@ const OrderDetailPage: React.FC = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setOrder(response.data);
+      console.log("Order details fetched:", response.data);
       
     } catch (error) {
       console.error("Failed to fetch order details:", error);
@@ -297,16 +298,37 @@ const OrderDetailPage: React.FC = () => {
               </Grid>
             </Grid>
             {/* Ordered Products */}
-                  <Card sx={{ boxShadow: 3, mb: 8, p: 2 }}>
+                  <Card sx={{ boxShadow: 3, mb: 2, p: 1 }}>
                     <CardHeader avatar={<ShoppingCart />} title="Ordered Products" />
                     <CardContent>
                       {order.products.length > 0 ? (
                         <Grid container spacing={3}>
                           {order.products.map((product: any) => (
-                            <Grid item xs={12} key={product.productID}>
+                            <Grid item xs={4} key={product.id}>
+                              
                               <Paper elevation={3} sx={{ display: "flex", alignItems: "center", padding: 2, borderRadius: 2, gap: 3 }}>
+                              <div>
+                              <Typography variant="h6">{product.name}</Typography>
                                 <img src={`http://localhost:8000${product.image}?t=${new Date().getTime()}`} alt={product.name} className="h-20 w-20 object-cover rounded-md" />
-                                <Typography variant="h6">{product.name}</Typography>
+                                </div>
+                                {/* Display selected options */}
+                                <div>
+                              {product.selected_options && (
+                <ul className="mt-1 text-sm text-gray-500">
+                  {Object.entries(product.selected_options).map(([key, value]) => (
+                    <li key={key}>
+                      <span className="font-medium">{key}:</span> {String(value)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="text-lg font-medium text-gray-900">
+              ${(product.price * product.quantity).toFixed(2)}
+            </p>
+            <div className="mt-4">
+            <p className="text-sm text-gray-500">Quantity: {product.quantity}</p>
+          </div>
+          </div>
                               </Paper>
                             </Grid>
                           ))}

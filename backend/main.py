@@ -9,9 +9,9 @@ import datetime
 from datetime import timedelta
 from pydantic import BaseModel, EmailStr
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional
+from typing import Dict, List, Optional
 import urllib.parse
-from sqlalchemy import Column, TIMESTAMP, text,PrimaryKeyConstraint, Integer, String, Enum, ForeignKey, TIMESTAMP, DECIMAL
+from sqlalchemy import Column, TIMESTAMP, text,PrimaryKeyConstraint, Integer, String, Enum, ForeignKey, TIMESTAMP, DECIMAL, JSON, UniqueConstraint
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import TIMESTAMP, DECIMAL, Enum,desc
 from typing import Literal
@@ -174,12 +174,16 @@ class CategoryCreate(SQLModel):
     description: Optional[str] = None
 
 class Cart_prod(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
     cartID: int = Field()
     productID: int = Field()
     price: float
     quantity:int
+    selected_options: Optional[Dict[str, str]] = Field(sa_column=Column(JSON))  # Use JSON type
 
-    __table_args__ = (PrimaryKeyConstraint('cartID', 'productID'),)
+    __table_args__ = (
+        UniqueConstraint('cartID', 'productID', 'selected_options', name='uq_cart_product_options'),
+    )
 
 
 class AddressCreate(SQLModel):
@@ -227,10 +231,12 @@ class Orders(SQLModel, table=True):
     invoice_path:str
 
 class Order_prod(SQLModel, table=True):
-    orderID: int = Field(primary_key=True)
-    productID: int = Field( primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
+    orderID: int = Field()
+    productID: int = Field()
     quantity: int = Field(..., gt=0)  # Must be greater than 0
     price: float = Field(..., ge=0) 
+    selected_options: Optional[Dict[str, str]] = Field(sa_column=Column(JSON)) 
 
 class Payments(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -387,11 +393,12 @@ class AddProductToCartRequest(BaseModel):
     productID: int
     quantity: int
     price: float
+    selected_options: Optional[Dict[str, str]] = None 
 
 
 class UpdateCartItemRequest(BaseModel):
     customerID: int
-    productID: int
+    id: int  # Use `id` instead of `productID`
     quantity: int
 
 class orderCreate(BaseModel):
@@ -672,13 +679,39 @@ def view_products(current_user: dict = Depends(get_current_user), db: Session = 
 
 # View Products customer
 @app.get("/customer-view-products")
-def view_products(db: Session = Depends(get_db), category_id: Optional[int] = Query(None), product_id: Optional[int] = Query(None)):
-
+def view_products(
+    db: Session = Depends(get_db),
+    category_id: Optional[int] = Query(None),
+    product_id: Optional[int] = Query(None)
+):
     if product_id:
         product = db.get(Products, product_id)
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
-        return {"Product": product}
+
+        # Fetch product options and their values
+        options = db.exec(
+            select(ProductOption)
+            .where(ProductOption.productID == product_id, ProductOption.status == "active")
+        ).all()
+
+        # Create a list to include options with their values
+        options_with_values = []
+        for option in options:
+            option_values = db.exec(
+                select(ProductOptionValue)
+                .where(ProductOptionValue.product_option_id == option.id)
+            ).all()
+            options_with_values.append({
+                "option_id": option.id,
+                "title": option.title,
+                "type": option.type,
+                "is_required": option.is_required,
+                "status": option.status,
+                "values": [{"id": value.id, "title": value.title, "price": value.price, "sku": value.sku, "quantity": value.quantity} for value in option_values]
+            })
+
+        return {"Product": product, "Options": options_with_values}
 
     if category_id:
         category_ids = get_all_subcategory_ids(category_id, db)
@@ -687,13 +720,11 @@ def view_products(db: Session = Depends(get_db), category_id: Optional[int] = Qu
             .join(Cat_prod, Products.productID == Cat_prod.productID)
             .where(Cat_prod.categoryID.in_(category_ids))
         ).all()
-        # Use a set to collect unique product IDs
         unique_products = {product.productID: product for product in products}.values()
     else:
         unique_products = db.exec(select(Products)).all()
 
     return {"Products": list(unique_products)}
-
 
 
 # View Categories
@@ -1159,11 +1190,13 @@ class CustomerSignup(BaseModel):
 # Pydantic model for Cart Item Response
 class CartItemResponse(BaseModel):
     productID: int
+    id: int
     name: str
     image_path: Optional[str]
     quantity: int
     price: float
     product_stock:int
+    selected_options: Optional[dict]
 
 
 @app.post("/send-email/")
@@ -1239,47 +1272,67 @@ def update_customer(customer_id: int, user_data: CustomerCreate, current_user: d
     db.commit()
     return {"message": "User updated successfully"}
 
+
+
+import json
+
+
+
 @app.post("/add-product-cart")
-def add_product_to_cart(data: AddProductToCartRequest, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    print('%%%%%%%%%',data)
+def add_product_to_cart(
+    data: AddProductToCartRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     existing_customer = db.get(Customer, data.customerID)
     if not existing_customer:
         raise HTTPException(status_code=404, detail="User not found")
     if current_user["email"] != existing_customer.Email:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Fetch the active cart from the Cart table using the provided customerID
-    cart = db.exec(select(Cart).where(Cart.customerID == data.customerID).where(Cart.status == "active")).first()
-    
+    # Fetch the active cart
+    cart = db.exec(
+        select(Cart)
+        .where(Cart.customerID == data.customerID)
+        .where(Cart.status == "active")
+    ).first()
+
     if not cart:
-        # If no active cart is found, create a new cart with status "active"
         new_cart = Cart(customerID=data.customerID, status="active")
         db.add(new_cart)
         db.commit()
         db.refresh(new_cart)
         cart = new_cart
 
-    # Check if the entry already exists in the cart_prod table
-    existing_cart_prod = db.exec(select(Cart_prod).where(Cart_prod.cartID == cart.cartID).where(Cart_prod.productID == data.productID)).first()
+    # Serialize the selected_options to a JSON string for consistent comparison
+    serialized_options = json.dumps(data.selected_options, sort_keys=True)
+
+    # Check if a cart_prod entry for the same product and options exists
+    existing_cart_prod = db.exec(
+        select(Cart_prod)
+        .where(Cart_prod.cartID == cart.cartID)
+        .where(Cart_prod.productID == data.productID)
+        .where(Cart_prod.selected_options == serialized_options)
+    ).first()
 
     if existing_cart_prod:
-        # Update the existing entry by incrementing the quantity
+        # Update quantity and price
         existing_cart_prod.quantity += data.quantity
-        existing_cart_prod.price = data.price  # Update the price if needed
+        existing_cart_prod.price = data.price
     else:
-        print("@@@@@@@@",data.quantity)
-        # Insert a new entry into the cart_prod table
+        # Add new product to cart with selected options
         new_cart_prod = Cart_prod(
             cartID=cart.cartID,
             productID=data.productID,
             quantity=data.quantity,
-            price=data.price
+            price=data.price,
+            selected_options=serialized_options  # Store serialized JSON
         )
         db.add(new_cart_prod)
 
     db.commit()
-
     return {"message": "Product added to cart successfully"}
+
 
 
 @app.get("/cart", response_model=list[CartItemResponse])
@@ -1310,11 +1363,13 @@ def get_cart_items(customerID: int = Query(..., description="Customer ID"), curr
     cart_response = [
         {
             "productID": product.productID,
+            "id": cart_item.id,
             "name": product.name,
             "image_path": product.image_path,
             "quantity": cart_item.quantity,
             "price": product.price,
-            "product_stock":product.quantity
+            "product_stock":product.quantity,
+            "selected_options": json.loads(cart_item.selected_options) if cart_item.selected_options else None
         }
         for cart_item, product in cart_items
     ]
@@ -1322,7 +1377,7 @@ def get_cart_items(customerID: int = Query(..., description="Customer ID"), curr
     return cart_response
 
 @app.delete("/remove-cart-item")
-def remove_cart_item(customerID: int = Query(..., description="Customer ID"), productID: int = Query(..., description="Product ID"), current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def remove_cart_item(customerID: int = Query(..., description="Customer ID"), id: int = Query(..., description="ID"), current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     
     existing_customer = db.get(Customer, customerID)
     
@@ -1337,7 +1392,7 @@ def remove_cart_item(customerID: int = Query(..., description="Customer ID"), pr
         raise HTTPException(status_code=404, detail="Cart not found for the given customerID")
 
     # Get the cart item to delete
-    cart_item = db.query(Cart_prod).filter(Cart_prod.cartID == cart.cartID).filter(Cart_prod.productID == productID).first()
+    cart_item = db.query(Cart_prod).filter(Cart_prod.cartID == cart.cartID).filter(Cart_prod.id == id).first()
     if not cart_item:
         raise HTTPException(status_code=404, detail="Cart item not found")
 
@@ -1349,12 +1404,11 @@ def remove_cart_item(customerID: int = Query(..., description="Customer ID"), pr
 
 @app.put("/update-cart-item")
 def update_cart_item(data: UpdateCartItemRequest, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    
     existing_customer = db.get(Customer, data.customerID)
     
     if not existing_customer:
         raise HTTPException(status_code=404, detail="User not found")
-    if(current_user["email"]!=existing_customer.Email):
+    if current_user["email"] != existing_customer.Email:
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Get cart for the given customerID
@@ -1362,8 +1416,8 @@ def update_cart_item(data: UpdateCartItemRequest, current_user: dict = Depends(g
     if not cart:
         raise HTTPException(status_code=404, detail="Cart not found for the given customerID")
 
-    # Get the cart item to update
-    cart_item = db.query(Cart_prod).filter(Cart_prod.cartID == cart.cartID).filter(Cart_prod.productID == data.productID).first()
+    # Get the cart item to update using `id`
+    cart_item = db.query(Cart_prod).filter(Cart_prod.id == data.id).first()
     if not cart_item:
         raise HTTPException(status_code=404, detail="Cart item not found")
 
@@ -1371,7 +1425,6 @@ def update_cart_item(data: UpdateCartItemRequest, current_user: dict = Depends(g
     db.commit()
 
     return {"message": "Cart item updated successfully"}
-
 
 class ClearCartRequest(BaseModel):
     customerID: int
@@ -1519,7 +1572,6 @@ def create_order(order_data: orderCreate, background_tasks: BackgroundTasks, cur
             raise HTTPException(status_code=403, detail="Access denied")
 
         existing_address = db.get(Address, order_data.addressID)
-        
         if not existing_address:
             raise HTTPException(status_code=404, detail="Address not found")
 
@@ -1530,11 +1582,12 @@ def create_order(order_data: orderCreate, background_tasks: BackgroundTasks, cur
         cart_items = db.exec(select(Cart_prod).where(Cart_prod.cartID == cart.cartID)).all()
         if not cart_items:
             raise HTTPException(status_code=404, detail="No items in the cart")
+
         shipping_rate = db.query(ShippingRate).filter(ShippingRate.id == existing_address.countryID).first()
         shipping_cost = float(shipping_rate.shipping_cost)
         total_price = sum([float(cart_item.price) * cart_item.quantity for cart_item in cart_items]) + shipping_cost
 
-
+        # Create the order
         new_order = Orders(
             customerID=order_data.customerID,
             total_price=total_price,
@@ -1543,50 +1596,89 @@ def create_order(order_data: orderCreate, background_tasks: BackgroundTasks, cur
         db.add(new_order)
         db.commit()
         db.refresh(new_order)
-        order_address=OrderAddress(orderID=new_order.orderID,
-                                   customerID=new_order.customerID,
-                                   name=existing_address.name,
-                                   building_name=existing_address.building_name,
-                                   countryID=existing_address.countryID,
-                                   state=existing_address.state,
-                                   district=existing_address.district,
-                                   city=existing_address.city,
-                                   street=existing_address.street,
-                                   pincode=existing_address.pincode,
-                                   phone_number=existing_address.phone_number)
+
+        # Add order address
+        order_address = OrderAddress(
+            orderID=new_order.orderID,
+            customerID=new_order.customerID,
+            name=existing_address.name,
+            building_name=existing_address.building_name,
+            countryID=existing_address.countryID,
+            state=existing_address.state,
+            district=existing_address.district,
+            city=existing_address.city,
+            street=existing_address.street,
+            pincode=existing_address.pincode,
+            phone_number=existing_address.phone_number
+        )
         db.add(order_address)
         db.commit()
+
         ordered_products = []  # Store product details for invoice
         for cart_item in cart_items:
-            existing_orderprod = db.exec(select(Order_prod)
+            # Deserialize selected_options if it exists
+            selected_options = json.loads(cart_item.selected_options) if cart_item.selected_options else {}
+
+            # Check if an entry with the same productID, orderID, and selected_options exists
+            existing_orderprod = db.exec(
+                select(Order_prod)
                 .where(Order_prod.orderID == new_order.orderID)
                 .where(Order_prod.productID == cart_item.productID)
+                .where(Order_prod.selected_options == cart_item.selected_options)  # Compare JSON directly
             ).first()
 
             if existing_orderprod:
                 continue  # Skip duplicate entries
 
+            # Add new product to the order
             new_order_prod = Order_prod(
                 orderID=new_order.orderID,
                 productID=cart_item.productID,
                 quantity=cart_item.quantity,
-                price=cart_item.price
+                price=cart_item.price,
+                selected_options=cart_item.selected_options  # Pass JSON directly
             )
             db.add(new_order_prod)
-            product=db.exec(select(Products).where(Products.productID==cart_item.productID)).first()
-            product.quantity=product.quantity-cart_item.quantity
+
+            # Update product option values based on selected options
+            for option_key, option_value in selected_options.items():
+                # Find the corresponding ProductOption entry
+                product_option = db.exec(
+                    select(ProductOption)
+                    .where(ProductOption.productID == cart_item.productID)
+                    .where(ProductOption.title == option_key)
+                ).first()
+
+                if product_option:
+                    # Find the corresponding ProductOptionValue entry
+                    product_option_value = db.exec(
+                        select(ProductOptionValue)
+                        .where(ProductOptionValue.product_option_id == product_option.id)
+                        .where(ProductOptionValue.title == option_value)
+                    ).first()
+
+                    if product_option_value:
+                        # Update the quantity in the ProductOptionValue table
+                        product_option_value.quantity -= cart_item.quantity
+                        if product_option_value.quantity < 0:
+                            raise HTTPException(status_code=400, detail=f"Insufficient stock for option '{option_key}: {option_value}'")
+
             # Store product details for invoice generation
+            product = db.exec(select(Products).where(Products.productID == cart_item.productID)).first()
+            product.quantity -= cart_item.quantity  # Update product stock
             ordered_products.append({
                 "name": product.name,
                 "quantity": cart_item.quantity,
                 "price": cart_item.price,
-                # "image": product.image_path
             })
 
         db.commit()
+
+        # Mark cart as completed
         cart.status = "completed"
         db.commit()
-        # ✅ Step 7: Generate Invoice PDF
+
+        # Generate Invoice PDF
         order_details = {
             "orderID": new_order.orderID,
             "customer_name": f"{existing_customer.FirstName} {existing_customer.LastName}",
@@ -1596,20 +1688,24 @@ def create_order(order_data: orderCreate, background_tasks: BackgroundTasks, cur
             "total_price": new_order.total_price,
             "products": ordered_products
         }
-        invoice_path = generate_invoice(order_details) 
-        new_order.invoice_path=invoice_path
-        db.commit() 
+        invoice_path = generate_invoice(order_details)
+        new_order.invoice_path = invoice_path
+        db.commit()
+
+        # Send confirmation email with invoice
         email = EmailSchema(
             email=existing_customer.Email,
             subject="Order Confirmation",
             body=f"<h1>Thank you for your order #{new_order.orderID}!</h1><p>Your order has been placed successfully.</p>"
         )
         background_tasks.add_task(send_email, email, invoice_path)
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Order creation failed: {str(e)}")
+
     return {"message": "Order created successfully", "orderID": new_order.orderID, "total_price": new_order.total_price, "status": new_order.status}
-    
+
 @app.get("/view-orders")
 def view_orders(customerID: int = Query(..., description="Customer ID") , current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     existing_customer = db.get(Customer, customerID)
@@ -1672,12 +1768,14 @@ def view_order_products(orderID: int, current_user: dict = Depends(get_current_u
     products = [
         {
             "productID": product.productID,
+            "id": order_prod.id,
             "name": product.name,
             "description": product.description,
             "SKU": product.SKU,
             "price": product.price,
             "quantity": order_prod.quantity,  # Ordered quantity
-            "image_path": product.image_path
+            "image_path": product.image_path,
+            "selected_options": json.loads(order_prod.selected_options) if order_prod.selected_options else None,
         }
         for order_prod, product in order_products
     ]
@@ -1926,13 +2024,15 @@ def view_order(orderID: int, current_user: dict = Depends(get_current_user), db:
     products = [
         {
             "productID": product.productID,
+            "id": order_prod.id,
             "name": product.name,
             "image": product.image_path,
             "description": product.description,
             "SKU": product.SKU,
             "price": product.price,
             "quantity": order_prod.quantity,
-            "total_price": order_prod.quantity * product.price
+            "total_price": order_prod.quantity * product.price,
+            "selected_options": json.loads(order_prod.selected_options) if order_prod.selected_options else None,
         }
         for order_prod, product in order_products
     ]

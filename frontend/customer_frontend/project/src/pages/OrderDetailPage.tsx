@@ -65,7 +65,7 @@ const OrderDetailPage: React.FC = () => {
     }
     try {
       await ordersAPI.updateOrder(Number(order.orderID),status );
-      setOrder((prevOrder) => (prevOrder ? { ...prevOrder, status: status||""} : null));
+      setOrder((prevOrder) => (prevOrder ? { ...prevOrder, status: status as Order["status"] } : null));
       if(status=='confirmed'){ 
         alert("Payment successful! Order confirmed.");
       }
@@ -173,33 +173,45 @@ const OrderDetailPage: React.FC = () => {
                 <div className="px-6 py-4 border-b border-gray-200">
                   <h2 className="text-lg font-medium text-gray-900 mb-4">Order Items</h2>
                   <ul className="divide-y divide-gray-200">
-                    {order.products.map((item) => (
-                      <li key={item.productID} className="py-4 flex">
-                        <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-md border border-gray-200">
-                          <img
-                            src={`http://localhost:8000${item.image_path}?t=${new Date().getTime()}`}
-                            alt={item.name}
-                            className="h-full w-full object-cover object-center"
-                          />
-                        </div>
-                        <div className="ml-4 flex-1 flex flex-col">
-                          <div>
-                            <div className="flex justify-between text-base font-medium text-gray-900">
-                              <h3>
-                                <Link to={`/products/${item.productID}`} className="hover:text-indigo-600">
-                                  {item.name}
-                                </Link>
-                              </h3>
-                              <p className="ml-4">${(item.price * item.quantity).toFixed(2)}</p>
-                            </div>
-                          </div>
-                          <div className="flex-1 flex items-end justify-between text-sm">
-                            <p className="text-gray-500">Qty {item.quantity}</p>
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+  {order.products.map((product) => (
+    <li key={product.id} className="p-6">
+      <div className="flex items-center">
+        <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-md border border-gray-200">
+          <img
+            src={`http://localhost:8000${product.image_path}?t=${new Date().getTime()}`}
+            alt={product.name}
+            className="h-full w-full object-cover object-center"
+          />
+        </div>
+        <div className="ml-4 flex-1">
+          <div className="flex justify-between">
+            <div>
+              <h3 className="text-lg font-medium text-gray-900">
+                {product.name}
+              </h3>
+              {/* Display selected options */}
+              {product.selected_options && (
+                <ul className="mt-1 text-sm text-gray-500">
+                  {Object.entries(product.selected_options).map(([key, value]) => (
+                    <li key={key}>
+                      <span className="font-medium">{key}:</span> {value}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <p className="text-lg font-medium text-gray-900">
+              ${(product.price * product.quantity).toFixed(2)}
+            </p>
+          </div>
+          <div className="mt-4">
+            <p className="text-sm text-gray-500">Quantity: {product.quantity}</p>
+          </div>
+        </div>
+      </div>
+    </li>
+  ))}
+</ul>
                 </div>
 
         {/* Display Status Messages */}

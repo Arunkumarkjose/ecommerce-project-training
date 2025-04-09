@@ -15,11 +15,13 @@ const CartPage: React.FC = () => {
       if (isAuthenticated && user) {
         try {
           const cartItems = await cartAPI.getCartItems(user.customerid);
+          console.log('$$$Fetched cart items:', cartItems);
           
           if (Array.isArray(cartItems) && cartItems.length > 0) {
              
           }
           setItems(cartItems);
+          console.log('Fetched cart items:', cartItems);
           
         
         } catch (error) {
@@ -39,11 +41,11 @@ const CartPage: React.FC = () => {
     }
   };
 
-  const handleRemoveFromCart = async (productID: number) => {
+  const handleRemoveFromCart = async (id: number) => {
     if (isAuthenticated && user) {
       try {
-        await cartAPI.removeCartItem(user.customerid, productID);
-        removeFromCart(productID);
+        await cartAPI.removeCartItem(user.customerid, id);
+        removeFromCart(id);
       } catch (error) {
         console.error('Failed to remove cart item:', error);
       }
@@ -61,11 +63,11 @@ const CartPage: React.FC = () => {
     }
   };
 
-  const handleUpdateCart = async (productID: number, quantity:number) => {
+  const handleUpdateCart = async (id: number, quantity: number) => {
     if (isAuthenticated && user) {
       try {
-        await cartAPI.updateCartItem(user.customerid, productID, quantity );
-        updateQuantity(productID, quantity);
+        await cartAPI.updateCartItem(user.customerid, id, quantity); // Use `id` instead of `productID`
+        updateQuantity(id, quantity); // Update the state using `id`
       } catch (error) {
         console.error('Failed to update cart item:', error);
       }
@@ -133,92 +135,87 @@ const CartPage: React.FC = () => {
         {/* Cart Items */}
         <div className="lg:col-span-8">
           <div className="bg-white rounded-lg shadow-md overflow-hidden mb-6">
-            <ul className="divide-y divide-gray-200">
-              {items.map((item) => (
-                <li key={item.productID} className="p-6">
-                  <div className="flex items-center">
-                    <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-md border border-gray-200">
-                      <img
-                        src={`http://localhost:8000${item.image_path}?t=${new Date().getTime()}`}
-                        alt={item.name}
-                        className="h-full w-full object-cover object-center"
-                      />
-                      
-                    </div>
-                    
-                    <div className="ml-4 flex-1">
-                      <div className="flex justify-between">
-                        <div>
-                          <h3 className="text-lg font-medium text-gray-900">
-                            <Link to={`/products/${item.productID}`} className="hover:text-indigo-600">
-                              {item.product_stock}
-                            </Link>
-                          </h3>
-                          {/* <p className="mt-1 text-sm text-gray-500">{item.category}</p> */}
-                        </div>
-                        <p className="text-lg font-medium text-gray-900">${(item.price * item.quantity).toFixed(2)}</p>
-                      </div>
-                      
-                      <div className="mt-4 flex items-center justify-between">
-                        <div className="flex items-center border border-gray-300 rounded-md">
-  {/* Decrease Quantity Button */}
-  <button 
-    onClick={() => handleUpdateCart(item.productID, Math.max(1, item.quantity - 1))}
+          <ul className="divide-y divide-gray-200">
+  {items.map((item) => (
+    <li key={item.id} className="p-6">
+      <div className="flex items-center">
+        <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-md border border-gray-200">
+          <img
+            src={`http://localhost:8000${item.image_path}?t=${new Date().getTime()}`}
+            alt={item.name}
+            className="h-full w-full object-cover object-center"
+          />
+        </div>
+        <div className="ml-4 flex-1">
+          <div className="flex justify-between">
+            <div>
+              <h3 className="text-lg font-medium text-gray-900">
+                <Link to={`/products/${item.productID}`} className="hover:text-indigo-600">
+                  {item.name}
+                </Link>
+              </h3>
+              {/* Display selected options */}
+              {item.selected_options && (
+                <ul className="mt-1 text-sm text-gray-500">
+                  {Object.entries(item.selected_options).map(([key, value]) => (
+                    <li key={key}>
+                      <span className="font-medium">{key}:</span> {value}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <p className="text-lg font-medium text-gray-900">
+              ${(item.price * item.quantity).toFixed(2)}
+            </p>
+          </div>
+          <div className="mt-4 flex items-center justify-between">
+            {/* Quantity Selector */}
+            <div className="flex items-center border border-gray-300 rounded-md">
+  <button
+    onClick={() => handleUpdateCart(item.id, Math.max(1, item.quantity - 1))} // Use `id`
     className="px-3 py-1 text-gray-600 hover:bg-gray-100"
   >
     -
   </button>
-
-  {/* Input Field with Proper Restriction */}
   <input
     type="number"
     min="1"
-    max={item.product_stock} // ✅ Ensures max limit is set
+    max={item.product_stock}
     value={item.quantity}
     onChange={(e) => {
       const newQuantity = Number(e.target.value);
       if (newQuantity >= 1 && newQuantity <= item.product_stock) {
-        handleQuantityChange(item.productID, String(newQuantity));
-      }
-    }}
-    onBlur={() => {
-      if (item.quantity > item.product_stock) {
-        handleUpdateCart(item.productID, item.product_stock); // ✅ Corrects overflow
-      } else if (item.quantity < 1) {
-        handleUpdateCart(item.productID, 1); // ✅ Corrects underflow
+        handleUpdateCart(item.id, newQuantity); // Use `id`
       }
     }}
     className="w-12 text-center border-0 focus:ring-0"
   />
-
-  {/* Increase Quantity Button */}
-  <button 
+  <button
     onClick={() => {
       if (item.quantity < item.product_stock) {
-        handleUpdateCart(item.productID, item.quantity + 1);
+        handleUpdateCart(item.id, item.quantity + 1); // Use `id`
       }
     }}
     className="px-3 py-1 text-gray-600 hover:bg-gray-100"
-    disabled={item.quantity >= item.product_stock} // ✅ Disables button when max reached
+    disabled={item.quantity >= item.product_stock}
   >
     +
   </button>
 </div>
-
-                        
-                        <button
-                          onClick={() => handleRemoveFromCart(item.productID)}
-                          className="text-red-500 hover:text-red-700 flex items-center"
-                        >
-                          <Trash2 className="h-5 w-5 mr-1" />
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <button
+              onClick={() => handleRemoveFromCart(item.id)}
+              className="text-red-500 hover:text-red-700 flex items-center"
+            >
+              <Trash2 className="h-5 w-5 mr-1" />
+              Remove
+            </button>
+          </div>
+        </div>
+      </div>
+    </li>
+  ))}
+</ul>
             
             <div className="border-t border-gray-200 px-6 py-4 flex justify-between">
               <Link to="/products" className="text-indigo-600 hover:text-indigo-800 flex items-center">

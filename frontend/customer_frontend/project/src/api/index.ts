@@ -91,13 +91,14 @@ export const productsAPI = {
 export const cartAPI = {
 
   
-  addProductToCart: async (customerID: number, productID: number, quantity: number, price: number) => {
-    const response = await api.post('/add-product-cart', {
-      customerID,
-      productID,
-      quantity,
-      price,
-    });
+  addProductToCart: async (payload: {
+    customerID: number;
+    productID: number;
+    quantity: number;
+    price: number;
+    selected_options: { [key: string]: string }; // Use option title as key and value title as value
+  }) => {
+    const response = await api.post('/add-product-cart', payload);
     return response.data;
   },
 
@@ -109,18 +110,18 @@ export const cartAPI = {
     return response.data;
   },
 
-  removeCartItem: async (customerID:number,productID: number ) => {
+  removeCartItem: async (customerID:number,id: number ) => {
     const response = await api.delete('/remove-cart-item', {
-      params: {  productID:productID,customerID:customerID }
+      params: {  id:id,customerID:customerID }
     });
     return response.data;
   },
 
-  updateCartItem: async (customerID:number, productID: number, quantity: number) => {
-    console.log(customerID, productID, quantity);
+  updateCartItem: async (customerID: number, id: number, quantity: number) => {
+    console.log(customerID, id, quantity);
     const response = await api.put('/update-cart-item', { 
       customerID, 
-      productID, 
+      id, // Use `id` instead of `productID`
       quantity 
     });
     return response.data;

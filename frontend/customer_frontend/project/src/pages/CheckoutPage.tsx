@@ -206,7 +206,7 @@ const CheckoutPage = () => {
             <h4 className="text-lg font-semibold mb-2">Order Summary</h4>
             <ul>
               {items.map((item) => (
-                <li key={item.productID} className="flex justify-between border-b py-2">
+                <li key={item.id} className="flex justify-between border-b py-2">
                   <span>{item.name} (x{item.quantity})</span>
                   <span>${(item.price * item.quantity).toFixed(2)}</span>
                 </li>
